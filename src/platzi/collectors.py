@@ -9,6 +9,53 @@ from .utils import download_styles, get_m3u8_url, get_subtitles_url, slugify
 
 
 @Cache.cache_async
+async def get_learning_path_title(page: Page) -> str:
+    """Get the title of a learning path from the page."""
+    SELECTOR = ".LearningPathHero_LearningPathHero__FEDlM h1"
+    EXCEPTION = Exception("No learning path title found")
+    try:
+        title = await page.locator(SELECTOR).first.text_content()
+        if not title:
+            raise EXCEPTION
+    except Exception:
+        await page.close()
+        raise EXCEPTION
+
+    return title
+
+
+@Cache.cache_async
+async def get_learning_path_courses(page: Page) -> list[str]:
+    """Extract all course URLs from a learning path page."""
+    SELECTOR = ".CoursesList_CoursesList__TfADh a.Course_Course__NKjCs"
+    EXCEPTION = Exception("No courses found in learning path")
+    
+    try:
+        locator = page.locator(SELECTOR)
+        course_urls: list[str] = []
+        
+        count = await locator.count()
+        if count == 0:
+            raise EXCEPTION
+        
+        for i in range(count):
+            href = await locator.nth(i).get_attribute("href")
+            if href:
+                # Complete the URL with the base domain
+                full_url = PLATZI_URL + href if href.startswith("/") else href
+                course_urls.append(full_url)
+        
+        if not course_urls:
+            raise EXCEPTION
+            
+    except Exception as e:
+        await page.close()
+        raise EXCEPTION from e
+    
+    return course_urls
+
+
+@Cache.cache_async
 async def get_course_title(page: Page) -> str:
     SELECTOR = ".CourseHeader_CourseHeader__Title__yhjgH"
     EXCEPTION = Exception("No course title found")

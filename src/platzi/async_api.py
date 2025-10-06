@@ -11,7 +11,13 @@ from rich import box, print
 from rich.live import Live
 from rich.table import Table
 
-from .collectors import get_course_title, get_draft_chapters, get_unit
+from .collectors import (
+    get_course_title,
+    get_draft_chapters,
+    get_learning_path_courses,
+    get_learning_path_title,
+    get_unit,
+)
 from .constants import HEADERS, LOGIN_DETAILS_URL, LOGIN_URL, SESSION_FILE
 from .helpers import read_json, write_json
 from .logger import Logger
@@ -135,6 +141,58 @@ class AsyncPlatzi:
         page = await self.page
         await page.goto(url)
 
+        # Check if it's a learning path
+        if "/ruta/" in url:
+            await self._download_learning_path(page, url, **kwargs)
+            return
+
+        # Close page and use the _download_course method
+        await page.close()
+        await self._download_course(url, **kwargs)
+
+    @try_except_request
+    @login_required
+    async def _download_learning_path(self, page: Page, url: str, **kwargs):
+        """Download all courses from a learning path."""
+        try:
+            # Get learning path title
+            path_title = await get_learning_path_title(page)
+            Logger.info(f"\n{'='*100}")
+            Logger.info(f"Learning Path: {path_title}")
+            Logger.info(f"{'='*100}\n")
+
+            # Get all course URLs from the learning path
+            course_urls = await get_learning_path_courses(page)
+            Logger.info(f"Found {len(course_urls)} courses in this learning path\n")
+
+            # Close the initial page
+            await page.close()
+
+            # Download each course
+            for idx, course_url in enumerate(course_urls, 1):
+                Logger.info(f"\n{'='*100}")
+                Logger.info(f"Downloading course {idx}/{len(course_urls)}: {course_url}")
+                Logger.info(f"{'='*100}\n")
+                
+                # Download individual course
+                await self._download_course(course_url, **kwargs)
+
+            Logger.info(f"\n{'='*100}")
+            Logger.info(f"✅ Learning Path '{path_title}' completed! All {len(course_urls)} courses downloaded.")
+            Logger.info(f"{'='*100}\n")
+
+        except Exception as e:
+            Logger.error(f"Error downloading learning path: {e}")
+            await page.close()
+            raise
+
+    @try_except_request
+    @login_required
+    async def _download_course(self, url: str, **kwargs):
+        """Download a single course."""
+        page = await self.page
+        await page.goto(url)
+
         # course title
         course_title = await get_course_title(page)
         # Logger.print(course_title, "[COURSE]")
@@ -232,7 +290,7 @@ class AsyncPlatzi:
                     Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
                     await self.save_page(unit.url, path=dst)
 
-            print("=" * 100)
+        print("=" * 100)
 
     @try_except_request
     async def save_page(
