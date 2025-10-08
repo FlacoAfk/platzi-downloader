@@ -11,6 +11,37 @@ from .helpers import retry
 from .logger import Logger
 
 
+def safe_path(path: Path, max_total_length: int = 240) -> Path:
+    """
+    Ensure a path doesn't exceed Windows' path length limit.
+    If it does, truncate the filename while preserving the extension.
+    
+    :param path(Path): The path to validate
+    :param max_total_length(int): Maximum allowed path length (default: 240, leaving buffer for 260 limit)
+    :return Path: Safe path that won't exceed the limit
+    """
+    path_str = str(path.resolve())
+    
+    if len(path_str) <= max_total_length:
+        return path
+    
+    # Calculate how much we need to reduce
+    excess = len(path_str) - max_total_length
+    
+    # Get the filename and extension
+    name = path.stem
+    ext = path.suffix
+    parent = path.parent
+    
+    # Truncate the filename (not the extension)
+    if len(name) > excess:
+        new_name = name[:len(name) - excess - 3] + "..."  # Add ellipsis
+        return parent / f"{new_name}{ext}"
+    
+    # If truncating filename isn't enough, just use a short name
+    return parent / f"file{ext}"
+
+
 async def progressive_scroll(
     page: Page, time: float = 3, delay: float = 0.1, steps: int = 250
 ):
@@ -43,11 +74,13 @@ def get_course_slug(url: str) -> str:
     return match.group(1)
 
 
-def clean_string(text: str) -> str:
+def clean_string(text: str, max_length: int = 100) -> str:
     """
     Remove special characters from a string and strip it.
+    Truncates the result if it exceeds max_length to avoid Windows path length issues.
 
     :param text(str): string to clean
+    :param max_length(int): maximum length for the resulting string (default: 100)
     :return str: cleaned string
 
     Example
@@ -56,7 +89,13 @@ def clean_string(text: str) -> str:
     "Hi"
     """
     result = re.sub(r"[ºª\n\r]|[^\w\s]", "", text)
-    return re.sub(r"\s+", " ", result).strip()
+    result = re.sub(r"\s+", " ", result).strip()
+    
+    # Truncate if too long (Windows has 260 char path limit)
+    if len(result) > max_length:
+        result = result[:max_length].strip()
+    
+    return result
 
 
 def slugify(text: str) -> str:

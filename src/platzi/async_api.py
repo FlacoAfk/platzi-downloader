@@ -1,3 +1,4 @@
+import asyncio
 import functools
 import json
 import os
@@ -23,7 +24,7 @@ from .helpers import read_json, write_json
 from .logger import Logger
 from .m3u8 import m3u8_dl
 from .models import TypeUnit, User
-from .utils import clean_string, download, progressive_scroll
+from .utils import clean_string, download, progressive_scroll, safe_path
 
 
 def login_required(func):
@@ -168,14 +169,19 @@ class AsyncPlatzi:
             # Close the initial page
             await page.close()
 
-            # Download each course
+            # Download each course with learning path context
             for idx, course_url in enumerate(course_urls, 1):
                 Logger.info(f"\n{'='*100}")
                 Logger.info(f"Downloading course {idx}/{len(course_urls)}: {course_url}")
                 Logger.info(f"{'='*100}\n")
                 
-                # Download individual course
-                await self._download_course(course_url, **kwargs)
+                # Download individual course with learning path context
+                await self._download_course(
+                    course_url, 
+                    learning_path_title=path_title,
+                    course_index=idx,
+                    **kwargs
+                )
 
             Logger.info(f"\n{'='*100}")
             Logger.info(f"✅ Learning Path '{path_title}' completed! All {len(course_urls)} courses downloaded.")
@@ -197,8 +203,19 @@ class AsyncPlatzi:
         course_title = await get_course_title(page)
         # Logger.print(course_title, "[COURSE]")
 
+        # Check if this is part of a learning path
+        learning_path_title = kwargs.get("learning_path_title")
+        course_index = kwargs.get("course_index")
+        
         # download directory
-        DL_DIR = Path("Courses") / clean_string(course_title)
+        # Apply length limits to avoid Windows 260 char path limit
+        if learning_path_title and course_index is not None:
+            # Structure: [Learning Path]/[N. Course]/
+            DL_DIR = Path("Courses") / clean_string(learning_path_title, max_length=60) / f"{course_index}. {clean_string(course_title, max_length=60)}"
+        else:
+            # Original structure for individual courses
+            DL_DIR = Path("Courses") / clean_string(course_title, max_length=80)
+        
         DL_DIR.mkdir(parents=True, exist_ok=True)
 
         # save page as mhtml
@@ -226,13 +243,13 @@ class AsyncPlatzi:
         for idx, draft_chapter in enumerate(draft_chapters, 1):
             Logger.info(f"Creating directory: {draft_chapter.name}")
 
-            CHAP_DIR = DL_DIR / f"{idx:02}-{clean_string(draft_chapter.name)}"
+            CHAP_DIR = DL_DIR / f"{idx}. {clean_string(draft_chapter.name, max_length=60)}"
             CHAP_DIR.mkdir(parents=True, exist_ok=True)
 
             # iterate over units
             for jdx, draft_unit in enumerate(draft_chapter.units, 1):
                 unit = await get_unit(self.context, draft_unit.url)
-                file_name = f"{jdx:02}-{clean_string(unit.title)}"
+                file_name = f"{jdx}. {clean_string(unit.title, max_length=50)}"
 
                 # download video
                 if unit.video:
@@ -252,43 +269,53 @@ class AsyncPlatzi:
 
                     # download resources
                     if unit.resources:
+                        # download summary
+                        summary = unit.resources.summary
+                        if summary:
+                            dst = CHAP_DIR / f"{file_name}_summary.html"
+                            Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
+                            with open(dst, 'w', encoding='utf-8') as f:
+                                f.write(summary)
+                        
                         # download files
                         files = unit.resources.files_url
                         if files:
                             for archive in files:
-                                file_name = unquote(os.path.basename(archive))
-                                dst = CHAP_DIR / f"{jdx:02}-{file_name}"
+                                file_name_archive = unquote(os.path.basename(archive))
+                                # Separate name and extension before cleaning
+                                name_part = os.path.splitext(file_name_archive)[0]
+                                ext_part = os.path.splitext(file_name_archive)[1]
+                                # Clean only the name, not the extension
+                                name_part = clean_string(name_part, max_length=50)
+                                file_name_archive = f"{name_part}{ext_part}"
+                                dst = CHAP_DIR / f"{jdx}. {file_name_archive}"
                                 Logger.print(f"[{dst.name}]", "[DOWNLOADING-FILES]")
                                 await download(archive, dst)
 
                         # download readings
                         readings = unit.resources.readings_url
                         if readings:
-                            dst = CHAP_DIR / f"{jdx:02}-Lecturas recomendadas.txt"
+                            dst = CHAP_DIR / f"{jdx}. Lecturas recomendadas.txt"
                             Logger.print(f"[{dst.name}]", "[SAVING-READINGS]")
                             with open(dst, 'w', encoding='utf-8') as f:
                                 for lecture in readings:
                                     f.write(lecture + "\n")
 
-                        # download summary
-                        summary = unit.resources.summary
-                        if summary:
-                            dst = CHAP_DIR / f"{jdx:02}-Resumen.html"
-                            Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
-                            with open(dst, 'w', encoding='utf-8') as f:
-                                f.write(summary)
-
                 # download lecture
                 if unit.type == TypeUnit.LECTURE:
-                    dst = CHAP_DIR / f"{file_name}.mhtml"
+                    # Ensure filename isn't too long
+                    safe_file_name = clean_string(unit.title, max_length=50)
+                    dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
                     Logger.print(f"[{dst.name}]", "[DOWNLOADING-LECTURE]")
-                    await self.save_page(unit.url, path=dst)
+                    await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
 
                 # download quiz
                 if unit.type == TypeUnit.QUIZ:
-                    dst = CHAP_DIR / f"{file_name}.mhtml"
+                    # Ensure filename isn't too long
+                    safe_file_name = clean_string(unit.title, max_length=50)
+                    dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
                     Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
-                    await self.save_page(unit.url, path=dst)
+                    await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
 
         print("=" * 100)
 
@@ -300,25 +327,138 @@ class AsyncPlatzi:
         **kwargs,
     ):
         overwrite: bool = kwargs.get("overwrite", False)
+        wait_for_images: bool = kwargs.get("wait_for_images", False)
+        
+        # Ensure path doesn't exceed Windows limit
+        path = safe_path(Path(path))
 
-        if not overwrite and Path(path).exists():
+        if not overwrite and path.exists():
             return
 
         if isinstance(src, str):
             page = await self.page
-            await page.goto(src)
+            try:
+                # Try with networkidle first, but with timeout handling
+                await page.goto(src, wait_until="domcontentloaded", timeout=30000)
+                # Wait for the page to be mostly ready
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    # If networkidle times out, just continue with domcontentloaded
+                    await page.wait_for_load_state("domcontentloaded")
+            except Exception:
+                # If still fails, try with basic load
+                await page.goto(src, wait_until="load", timeout=45000)
         else:
             page = src
 
         await progressive_scroll(page)
 
         try:
+            # Try to wait for additional content, but don't fail if timeout
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass  # Continue anyway
+            
+            await asyncio.sleep(1)  # Brief wait for dynamic content
+            
+            # Wait for all images to load completely (only for lectures and quizzes)
+            if wait_for_images:
+                Logger.info("Waiting for all images to load...")
+                images_loaded = await page.evaluate("""
+                    async () => {
+                        const images = Array.from(document.querySelectorAll('img'));
+                        
+                        // Force lazy-loaded images to load by setting their src if data-src exists
+                        images.forEach(img => {
+                            if (img.dataset.src && !img.src) {
+                                img.src = img.dataset.src;
+                            }
+                            if (img.dataset.srcset && !img.srcset) {
+                                img.srcset = img.dataset.srcset;
+                            }
+                        });
+                        
+                        // Wait for all images to load
+                        const imagePromises = images.map(img => {
+                            if (img.complete && img.naturalHeight !== 0) {
+                                return Promise.resolve();
+                            }
+                            
+                            return new Promise((resolve, reject) => {
+                                const timeout = setTimeout(() => {
+                                    console.warn('Image load timeout:', img.src);
+                                    resolve(); // Resolve anyway to not block
+                                }, 30000); // 30 second timeout per image
+                                
+                                img.onload = () => {
+                                    clearTimeout(timeout);
+                                    resolve();
+                                };
+                                img.onerror = () => {
+                                    clearTimeout(timeout);
+                                    console.warn('Image load error:', img.src);
+                                    resolve(); // Resolve anyway to continue
+                                };
+                                
+                                // Trigger reload if needed
+                                if (!img.complete) {
+                                    const src = img.src;
+                                    img.src = '';
+                                    img.src = src;
+                                }
+                            });
+                        });
+                        
+                        await Promise.all(imagePromises);
+                        
+                        return {
+                            totalImages: images.length,
+                            loadedImages: images.filter(img => img.complete && img.naturalHeight !== 0).length
+                        };
+                    }
+                """)
+                
+                Logger.info(f"Images loaded: {images_loaded['loadedImages']}/{images_loaded['totalImages']}")
+                
+                # Additional wait to ensure images are in browser cache
+                await asyncio.sleep(2)
+            
+            # Fix image sizes in Viewer_Viewer__BrpuP divs before capturing
+            await page.evaluate("""
+                () => {
+                    const viewerDivs = document.querySelectorAll('.Viewer_Viewer__BrpuP');
+                    viewerDivs.forEach(div => {
+                        const images = div.querySelectorAll('img');
+                        images.forEach(img => {
+                            img.style.width = '100%';
+                            img.style.height = 'auto';
+                            img.removeAttribute('height');
+                            img.setAttribute('width', '80%');
+                        });
+                    });
+                }
+            """)
+            
             client = await page.context.new_cdp_session(page)
-            response = await client.send("Page.captureSnapshot")
+            response = await client.send("Page.captureSnapshot", {"format": "mhtml"})
             async with aiofiles.open(path, "w", encoding="utf-8", newline="\n") as file:
                 await file.write(response["data"])
-        except Exception:
-            raise Exception("Error saving page as mhtml")
+            
+            if wait_for_images:
+                Logger.info(f"Page saved successfully with all images: {path.name}")
+            else:
+                Logger.info(f"Page saved successfully: {path.name}")
+        except Exception as e:
+            Logger.error(f"Error saving page as mhtml: {str(e)}")
+            # Try alternative method: save as HTML
+            try:
+                content = await page.content()
+                async with aiofiles.open(path, "w", encoding="utf-8") as file:
+                    await file.write(content)
+            except Exception:
+                raise Exception("Error saving page as mhtml")
 
         if isinstance(src, str):
             await page.close()

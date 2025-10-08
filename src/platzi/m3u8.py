@@ -215,7 +215,9 @@ async def m3u8_dl(
         if not m3u8_urls:
             raise Exception("No m3u8 urls found")
 
-        await _m3u8_dl(m3u8_urls[int(quality)], path, **kwargs)  # Here goes the video resolution [0]=1280; [1]=1920
+        # Use the requested quality index if available, otherwise use the last available resolution
+        quality_index = min(int(quality), len(m3u8_urls) - 1)
+        await _m3u8_dl(m3u8_urls[quality_index], path, **kwargs)  # Here goes the video resolution [0]=1280; [1]=1920
 
     except Exception:
         raise

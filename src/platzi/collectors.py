@@ -125,15 +125,22 @@ async def get_draft_chapters(page: Page) -> list[Chapter]:
 @Cache.cache_async
 async def get_unit(context: BrowserContext, url: str) -> Unit:
     TYPE_SELECTOR = ".VideoPlayer"
-    TITLE_SELECTOR = "h1.MaterialHeading_MaterialHeading__title__sDUKY"
+    # Try multiple possible selectors for the title (Platzi may change their class names)
+    TITLE_SELECTORS = [
+        "h1.MaterialHeading_MaterialHeading__title__sDUKY",
+        "h1[class*='MaterialHeading']",  # More flexible - matches any class containing MaterialHeading
+        "main h1",  # Generic fallback
+        "h1",  # Last resort
+    ]
     EXCEPTION = Exception("Could not collect unit data")
 
     # --- NEW CONSTANTS ----
     SECTION_FILES = '//h4[normalize-space(text())="Archivos de la clase"]'
     SECTION_READING = '//h4[normalize-space(text())="Lecturas recomendadas"]'
     SECTION_LINKS = 'a.FilesAndLinks_Item__fR7g4'
-    BUTTON_DOWNLOAD_ALL = 'a.FilesTree_FilesTree__Download__nGUsL'
-    SUMMARY_CONTENT_SELECTOR = 'div.Resources_Resources__Articlass__00D6l'
+    BUTTON_DOWNLOAD_ALL = 'a.Button.FilesTree_FilesTree__Download__nGUsL[href][download]'
+    # Updated selector to be more flexible - matches any class containing Resources__Articlass
+    SUMMARY_CONTENT_SELECTOR = 'div[class*="Resources_Resources__Articlass"]'
     SIBLINGS = '//following-sibling::ul[1]'
 
     if "/quiz/" in url:
@@ -147,14 +154,29 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
     page = None
     try:
         page = await context.new_page()
-        await page.goto(url)
+        await page.goto(url, wait_until="domcontentloaded")
 
         await asyncio.sleep(5)  # delay to avoid rate limiting
 
-        title = await page.locator(TITLE_SELECTOR).first.text_content()
-
+        # Try multiple selectors with increased timeout
+        title = None
+        for selector in TITLE_SELECTORS:
+            try:
+                title = await page.locator(selector).first.text_content(timeout=15000)
+                if title and title.strip():
+                    break
+            except Exception:
+                continue
+        
         if not title:
-            raise EXCEPTION
+            # If all selectors failed, log the page content for debugging
+            print(f"ERROR: Could not find title for URL: {url}")
+            print("Available h1 elements:")
+            h1_elements = await page.locator("h1").all()
+            for i, h1 in enumerate(h1_elements):
+                h1_text = await h1.text_content()
+                print(f"  h1[{i}]: {h1_text}")
+            raise Exception(f"Could not find title on page: {url}")
 
         if not await page.locator(TYPE_SELECTOR).is_visible():
             return Unit(
@@ -196,9 +218,16 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
 
         # Get link of the download all button if it exists
         if await download_all_button.count() > 0:
-            link = await download_all_button.get_attribute("href")
+            link = await download_all_button.first.get_attribute("href")
             if link:
                 file_links.append(link)
+        else:
+            # Try alternative selector for download button
+            alt_download_button = page.locator('a[download][target="_blank"]').filter(has_text="Descargar")
+            if await alt_download_button.count() > 0:
+                link = await alt_download_button.first.get_attribute("href")
+                if link:
+                    file_links.append(link)
 
         # Get "Lecturas recomendadas" if the section exists
         if await next_sibling_reading.count() > 0:
@@ -209,11 +238,11 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                     readings_links.append(link)
 
         # Get summary if it exists
-        summary = page.locator(SUMMARY_CONTENT_SELECTOR)
+        summary = page.locator(SUMMARY_CONTENT_SELECTOR).first
         if await summary.count() > 0:
             all_css_styles: list[str] = []
 
-            # Get the HTML structure of the summary
+            # Get the HTML structure of the summary (using .first to avoid strict mode violation)
             summary_section = await summary.evaluate("el => el.outerHTML")
 
             # Find all CSS selectors to include in the html_summary template
@@ -267,6 +296,10 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         )
 
     except Exception as e:
+        # Log the specific error for debugging
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error details: {error_details}")
         raise EXCEPTION from e
 
     finally:
