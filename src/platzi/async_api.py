@@ -248,7 +248,13 @@ class AsyncPlatzi:
 
             # iterate over units
             for jdx, draft_unit in enumerate(draft_chapter.units, 1):
-                unit = await get_unit(self.context, draft_unit.url)
+                try:
+                    unit = await get_unit(self.context, draft_unit.url)
+                except Exception as e:
+                    Logger.error(f"Error collecting unit data for '{draft_unit.title}': {str(e)}")
+                    Logger.warning("Skipping this unit and continuing with the next one...")
+                    continue
+                
                 file_name = f"{jdx}. {clean_string(unit.title, max_length=50)}"
 
                 # download video
