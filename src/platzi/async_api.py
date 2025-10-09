@@ -274,8 +274,148 @@ class AsyncPlatzi:
                         if summary:
                             dst = CHAP_DIR / f"{file_name}_summary.html"
                             Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
+                            # Add beautiful styling to summary
+                            styled_summary = f"""<!DOCTYPE html>
+                                <html lang="es">
+                                <head>
+                                    <meta charset="UTF-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <title>{unit.title} - Resumen</title>
+                                    <style>
+                                        body {{
+                                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                                            line-height: 1.8;
+                                            max-width: 900px;
+                                            margin: 0 auto;
+                                            padding: 40px 20px;
+                                            background-color: #f5f5f5;
+                                            color: #2c3e50;
+                                        }}
+                                        .container {{
+                                            background-color: #ffffff;
+                                            padding: 40px;
+                                            border-radius: 8px;
+                                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                                        }}
+                                        h1, h2, h3, h4, h5, h6 {{
+                                            color: #1a1a1a;
+                                            margin-top: 1.5em;
+                                            margin-bottom: 0.5em;
+                                            font-weight: 600;
+                                        }}
+                                        h1 {{
+                                            border-bottom: 3px solid #3498db;
+                                            padding-bottom: 10px;
+                                            font-size: 2em;
+                                        }}
+                                        h2 {{
+                                            border-bottom: 2px solid #95a5a6;
+                                            padding-bottom: 8px;
+                                            font-size: 1.5em;
+                                        }}
+                                        p {{
+                                            margin-bottom: 1em;
+                                            color: #34495e;
+                                        }}
+                                        code {{
+                                            background-color: #ecf0f1;
+                                            padding: 2px 6px;
+                                            border-radius: 3px;
+                                            font-family: 'Courier New', monospace;
+                                            color: #e74c3c;
+                                            font-size: 0.9em;
+                                        }}
+                                        pre {{
+                                            background-color: #2c3e50;
+                                            color: #ecf0f1;
+                                            padding: 20px;
+                                            border-radius: 5px;
+                                            overflow-x: auto;
+                                            line-height: 1.5;
+                                        }}
+                                        pre code {{
+                                            background-color: transparent;
+                                            color: #ecf0f1;
+                                            padding: 0;
+                                        }}
+                                        ul, ol {{
+                                            margin-bottom: 1em;
+                                            padding-left: 30px;
+                                            color: #34495e;
+                                        }}
+                                        li {{
+                                            margin-bottom: 0.5em;
+                                        }}
+                                        blockquote {{
+                                            border-left: 4px solid #3498db;
+                                            padding-left: 20px;
+                                            margin: 20px 0;
+                                            color: #555;
+                                            font-style: italic;
+                                            background-color: #f8f9fa;
+                                            padding: 15px 20px;
+                                            border-radius: 0 4px 4px 0;
+                                        }}
+                                        a {{
+                                            color: #3498db;
+                                            text-decoration: none;
+                                            border-bottom: 1px solid transparent;
+                                            transition: border-bottom 0.3s;
+                                        }}
+                                        a:hover {{
+                                            border-bottom: 1px solid #3498db;
+                                        }}
+                                        img {{
+                                            max-width: 100%;
+                                            height: auto;
+                                            border-radius: 5px;
+                                            margin: 20px 0;
+                                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                                        }}
+                                        table {{
+                                            border-collapse: collapse;
+                                            width: 100%;
+                                            margin: 20px 0;
+                                        }}
+                                        th, td {{
+                                            border: 1px solid #ddd;
+                                            padding: 12px;
+                                            text-align: left;
+                                        }}
+                                        th {{
+                                            background-color: #34495e;
+                                            color: white;
+                                            font-weight: 600;
+                                        }}
+                                        tr:nth-child(even) {{
+                                            background-color: #f8f9fa;
+                                        }}
+                                        .header {{
+                                            text-align: center;
+                                            margin-bottom: 30px;
+                                        }}
+                                        .header h1 {{
+                                            border: none;
+                                            margin-bottom: 10px;
+                                        }}
+                                        .date {{
+                                            color: #7f8c8d;
+                                            font-size: 0.9em;
+                                        }}
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="container">
+                                        <div class="header">
+                                            <h1>{unit.title}</h1>
+                                            <p class="date">Resumen del curso</p>
+                                        </div>
+                                        {summary}
+                                    </div>
+                                </body>
+                                </html>"""
                             with open(dst, 'w', encoding='utf-8') as f:
-                                f.write(summary)
+                                f.write(styled_summary)
                         
                         # download files
                         files = unit.resources.files_url
@@ -315,7 +455,7 @@ class AsyncPlatzi:
                     safe_file_name = clean_string(unit.title, max_length=50)
                     dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
                     Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
-                    await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
+                    await self.save_page(unit.url, path=dst, wait_for_images=False, **kwargs)
 
         print("=" * 100)
 

@@ -11,114 +11,235 @@ from .utils import download_styles, get_m3u8_url, get_subtitles_url, slugify
 @Cache.cache_async
 async def get_learning_path_title(page: Page) -> str:
     """Get the title of a learning path from the page."""
-    SELECTOR = ".LearningPathHero_LearningPathHero__FEDlM h1"
+    SELECTORS = [
+        ".LearningPathHero_LearningPathHero__FEDlM h1",  # Layout antiguo
+        'h2[class*="HeaderTitle"][data-qa="path_title"]',  # Nuevo layout con data-qa
+        'h2[class*="HeaderTitle__text"]',  # Alternativa
+        "h1",  # Fallback genérico
+    ]
     EXCEPTION = Exception("No learning path title found")
-    try:
-        title = await page.locator(SELECTOR).first.text_content()
-        if not title:
-            raise EXCEPTION
-    except Exception:
-        await page.close()
-        raise EXCEPTION
-
-    return title
+    
+    title = None
+    for selector in SELECTORS:
+        try:
+            title = await page.locator(selector).first.text_content(timeout=5000)
+            if title and title.strip():
+                return title.strip()
+        except Exception:
+            continue
+    
+    await page.close()
+    raise EXCEPTION
 
 
 @Cache.cache_async
 async def get_learning_path_courses(page: Page) -> list[str]:
     """Extract all course URLs from a learning path page."""
-    SELECTOR = ".CoursesList_CoursesList__TfADh a.Course_Course__NKjCs"
+    SELECTORS = [
+        ".CoursesList_CoursesList__TfADh a.Course_Course__NKjCs",  # Layout antiguo
+        'ul[class*="CourseList"][data-qa="courses_list"] a',  # Nuevo layout
+        'ul[class*="CourseList__PwyEa"] a[href*="/cursos/"]',  # Alternativa
+        'a[href*="/cursos/"]',  # Fallback genérico
+    ]
     EXCEPTION = Exception("No courses found in learning path")
     
-    try:
-        locator = page.locator(SELECTOR)
-        course_urls: list[str] = []
-        
-        count = await locator.count()
-        if count == 0:
-            raise EXCEPTION
-        
-        for i in range(count):
-            href = await locator.nth(i).get_attribute("href")
-            if href:
-                # Complete the URL with the base domain
-                full_url = PLATZI_URL + href if href.startswith("/") else href
-                course_urls.append(full_url)
-        
-        if not course_urls:
-            raise EXCEPTION
-            
-    except Exception as e:
-        await page.close()
-        raise EXCEPTION from e
+    course_urls: list[str] = []
     
-    return course_urls
+    for selector in SELECTORS:
+        try:
+            locator = page.locator(selector)
+            count = await locator.count()
+            
+            if count == 0:
+                continue
+            
+            for i in range(count):
+                href = await locator.nth(i).get_attribute("href")
+                if href and "/cursos/" in href:
+                    # Filtrar URLs no deseadas
+                    if "/opiniones/" in href or "#reviews" in href:
+                        continue
+                    
+                    # Complete the URL with the base domain
+                    full_url = PLATZI_URL + href if href.startswith("/") else href
+                    
+                    # Evitar duplicados
+                    if full_url not in course_urls:
+                        course_urls.append(full_url)
+            
+            if course_urls:
+                return course_urls
+                
+        except Exception:
+            continue
+    
+    await page.close()
+    raise EXCEPTION
 
 
 @Cache.cache_async
 async def get_course_title(page: Page) -> str:
-    SELECTOR = ".CourseHeader_CourseHeader__Title__yhjgH"
+    SELECTORS = [
+        ".CourseHeader_CourseHeader__Title__yhjgH",  # Layout antiguo
+        'h1[class*="CourseHeader"]',  # Más flexible
+        "main h1",  # Fallback genérico
+        "h1",  # Último recurso
+    ]
     EXCEPTION = Exception("No course title found")
-    try:
-        title = await page.locator(SELECTOR).first.text_content()
-        if not title:
-            raise EXCEPTION
-    except Exception:
-        await page.close()
-        raise EXCEPTION
-
-    return title
+    
+    for selector in SELECTORS:
+        try:
+            title = await page.locator(selector).first.text_content(timeout=5000)
+            if title and title.strip() and len(title.strip()) > 3:
+                return title.strip()
+        except Exception:
+            continue
+    
+    await page.close()
+    raise EXCEPTION
 
 
 @Cache.cache_async
 async def get_draft_chapters(page: Page) -> list[Chapter]:
-    SELECTOR = ".Syllabus_Syllabus__bVYL_ article"
+    CHAPTER_SELECTORS = [
+        ".Syllabus_Syllabus__bVYL_ article",  # Layout antiguo
+        'article[class*="Syllabus"]',  # Más flexible
+        "article",  # Fallback genérico
+    ]
+    
+    CHAPTER_NAME_SELECTORS = ["h2", 'h2[class*="Syllabus"]', "h3"]
+    
+    UNIT_LINK_SELECTORS = [
+        ".SyllabusSection_SyllabusSection__Materials__C2hlu a",  # Antiguo
+        'a[class*="ItemLink"]',  # ⭐ NUEVO (encontrado en análisis)
+        'a[class*="SyllabusSection"]',
+        'a[href*="/clases/"]',
+    ]
+    
+    TITLE_SELECTORS = [
+        'h3[class*="SyllabusSection_Item__Title"]',  # ⭐ MÁS ESPECÍFICO
+        'h3[class*="Item__Title"]',  # Flexible
+        'h3',  # Genérico
+        'h4', 'span', 'p'  # Fallbacks
+    ]
+    
     EXCEPTION = Exception("No sections found")
+    
+    chapters: list[Chapter] = []
+    chapter_locator = None
+    
+    # Intentar encontrar capítulos con diferentes selectores
+    for chapter_selector in CHAPTER_SELECTORS:
+        try:
+            locator = page.locator(chapter_selector)
+            count = await locator.count()
+            if count > 0:
+                chapter_locator = locator
+                break
+        except Exception:
+            continue
+    
+    if not chapter_locator:
+        await page.close()
+        raise EXCEPTION
+    
     try:
-        locator = page.locator(SELECTOR)
-
-        chapters: list[Chapter] = []
-        for i in range(await locator.count()):
-            chapter_name = await locator.nth(i).locator("h2").first.text_content()
-
+        for i in range(await chapter_locator.count()):
+            chapter_element = chapter_locator.nth(i)
+            
+            # Intentar obtener el nombre del capítulo con diferentes selectores
+            chapter_name = None
+            for name_selector in CHAPTER_NAME_SELECTORS:
+                try:
+                    chapter_name = await chapter_element.locator(name_selector).first.text_content(timeout=5000)
+                    if chapter_name and chapter_name.strip():
+                        chapter_name = chapter_name.strip()
+                        break
+                except Exception:
+                    continue
+            
             if not chapter_name:
-                raise EXCEPTION
-
-            block_list_locator = locator.nth(i).locator(
-                ".SyllabusSection_SyllabusSection__Materials__C2hlu a"
-            )
-
+                continue
+            
+            # Intentar obtener unidades con diferentes selectores
             units: list[Unit] = []
-            for j in range(await block_list_locator.count()):
-                ITEM_LOCATOR = block_list_locator.nth(j)
-
-                unit_url = await ITEM_LOCATOR.get_attribute("href")
-                unit_title = await ITEM_LOCATOR.locator("h3").first.text_content()
-
-                if not unit_url or not unit_title:
-                    raise EXCEPTION
-
-                units.append(
-                    Unit(
-                        type=TypeUnit.VIDEO,
-                        title=unit_title,
-                        url=PLATZI_URL + unit_url,
-                        slug=slugify(unit_title),
+            unit_urls_seen: set[str] = set()
+            
+            for link_selector in UNIT_LINK_SELECTORS:
+                try:
+                    block_list_locator = chapter_element.locator(link_selector)
+                    count = await block_list_locator.count()
+                    
+                    if count == 0:
+                        continue
+                    
+                    for j in range(count):
+                        ITEM_LOCATOR = block_list_locator.nth(j)
+                        
+                        unit_url = await ITEM_LOCATOR.get_attribute("href")
+                        
+                        # Filtrar URLs no válidas
+                        if not unit_url or "/opiniones/" in unit_url or "#reviews" in unit_url:
+                            continue
+                        
+                        # Validar que sea una URL de curso o clase
+                        if "/cursos/" not in unit_url and "/clases/" not in unit_url:
+                            continue
+                        
+                        # Evitar duplicados
+                        if unit_url in unit_urls_seen:
+                            continue
+                        
+                        # Intentar obtener el título con diferentes selectores
+                        unit_title = None
+                        for title_selector in TITLE_SELECTORS:
+                            try:
+                                unit_title = await ITEM_LOCATOR.locator(title_selector).first.text_content(timeout=3000)
+                                if unit_title and unit_title.strip() and len(unit_title.strip()) >= 3:
+                                    unit_title = unit_title.strip()
+                                    break
+                            except Exception:
+                                continue
+                        
+                        if not unit_title:
+                            continue
+                        
+                        unit_urls_seen.add(unit_url)
+                        
+                        units.append(
+                            Unit(
+                                type=TypeUnit.VIDEO,
+                                title=unit_title,
+                                url=PLATZI_URL + unit_url if unit_url.startswith("/") else unit_url,
+                                slug=slugify(unit_title),
+                            )
+                        )
+                    
+                    # Si encontramos unidades, salir del loop de selectores
+                    if units:
+                        break
+                        
+                except Exception:
+                    continue
+            
+            # Solo agregar capítulos que tengan unidades
+            if units:
+                chapters.append(
+                    Chapter(
+                        name=chapter_name,
+                        slug=slugify(chapter_name),
+                        units=units,
                     )
                 )
-
-            chapters.append(
-                Chapter(
-                    name=chapter_name,
-                    slug=slugify(chapter_name),
-                    units=units,
-                )
-            )
-
+    
     except Exception as e:
         await page.close()
         raise EXCEPTION from e
-
+    
+    if not chapters:
+        await page.close()
+        raise EXCEPTION
+    
     return chapters
 
 
@@ -137,8 +258,22 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
     # --- NEW CONSTANTS ----
     SECTION_FILES = '//h4[normalize-space(text())="Archivos de la clase"]'
     SECTION_READING = '//h4[normalize-space(text())="Lecturas recomendadas"]'
-    SECTION_LINKS = 'a.FilesAndLinks_Item__fR7g4'
-    BUTTON_DOWNLOAD_ALL = 'a.Button.FilesTree_FilesTree__Download__nGUsL[href][download]'
+    
+    # Selectores de enlaces de sección - Múltiples opciones
+    SECTION_LINK_SELECTORS = [
+        'a.FilesAndLinks_Item__fR7g4',  # Clase antigua
+        'a.FilesAndLinks_Item__tXA4W',  # ⭐ NUEVA clase encontrada
+        'a[class*="FilesAndLinks_Item"]',  # Flexible
+    ]
+    
+    # Selectores de botones de descarga - Múltiples opciones
+    DOWNLOAD_BUTTON_SELECTORS = [
+        'a.Button.FilesTree_FilesTree__Download__nGUsL[href][download]',  # Antiguo
+        'a.Button.FilesTree_FilesTree__Download__pvaHL[href][download]',  # ⭐ NUEVO
+        'a[class*="FilesTree__Download"][href][download]',  # Flexible
+        'a[download][target="_blank"]',  # Fallback con filtro "Descargar"
+    ]
+    
     # Updated selector to be more flexible - matches any class containing Resources__Articlass
     SUMMARY_CONTENT_SELECTOR = 'div[class*="Resources_Resources__Articlass"]'
     SIBLINGS = '//following-sibling::ul[1]'
@@ -203,39 +338,58 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         reading_section = page.locator(SECTION_READING)
         next_sibling_reading = reading_section.locator(SIBLINGS)
 
-        download_all_button = page.locator(BUTTON_DOWNLOAD_ALL)
-
         file_links: list[str] = []
         readings_links: list[str] = []
 
         # Get "Archivos de la clase" if the section exists
         if await next_sibling_files.count() > 0:
-            enlaces = next_sibling_files.locator(SECTION_LINKS)
-            for i in range(await enlaces.count()):
-                link = await enlaces.nth(i).get_attribute("href")
-                if link:
-                    file_links.append(link)
+            # Intentar diferentes selectores de enlaces
+            for selector in SECTION_LINK_SELECTORS:
+                try:
+                    enlaces = next_sibling_files.locator(selector)
+                    count = await enlaces.count()
+                    if count > 0:
+                        for i in range(count):
+                            link = await enlaces.nth(i).get_attribute("href")
+                            if link and link not in file_links:
+                                file_links.append(link)
+                        break
+                except Exception:
+                    continue
 
         # Get link of the download all button if it exists
-        if await download_all_button.count() > 0:
-            link = await download_all_button.first.get_attribute("href")
-            if link:
-                file_links.append(link)
-        else:
-            # Try alternative selector for download button
-            alt_download_button = page.locator('a[download][target="_blank"]').filter(has_text="Descargar")
-            if await alt_download_button.count() > 0:
-                link = await alt_download_button.first.get_attribute("href")
-                if link:
-                    file_links.append(link)
+        download_link_found = False
+        for selector in DOWNLOAD_BUTTON_SELECTORS:
+            try:
+                download_button = page.locator(selector)
+                if await download_button.count() > 0:
+                    # Filtro adicional para el selector genérico
+                    if selector == 'a[download][target="_blank"]':
+                        download_button = download_button.filter(has_text="Descargar")
+                    
+                    link = await download_button.first.get_attribute("href")
+                    if link and link not in file_links:
+                        file_links.append(link)
+                        download_link_found = True
+                        break
+            except Exception:
+                continue
 
         # Get "Lecturas recomendadas" if the section exists
         if await next_sibling_reading.count() > 0:
-            enlaces = next_sibling_reading.locator(SECTION_LINKS)
-            for i in range(await enlaces.count()):
-                link = await enlaces.nth(i).get_attribute("href")
-                if link:
-                    readings_links.append(link)
+            # Intentar diferentes selectores de enlaces
+            for selector in SECTION_LINK_SELECTORS:
+                try:
+                    enlaces = next_sibling_reading.locator(selector)
+                    count = await enlaces.count()
+                    if count > 0:
+                        for i in range(count):
+                            link = await enlaces.nth(i).get_attribute("href")
+                            if link and link not in readings_links:
+                                readings_links.append(link)
+                        break
+                except Exception:
+                    continue
 
         # Get summary if it exists
         summary = page.locator(SUMMARY_CONTENT_SELECTOR).first
