@@ -15,6 +15,8 @@ REFERER = "https://platzi.com/"
 
 # FIREFOX
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0"
+# User-Agent for browser (Chrome on Windows)
+# USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 HEADERS = {
     "User-Agent": USER_AGENT,

@@ -115,13 +115,60 @@ def slugify(text: str) -> str:
 
 
 def get_m3u8_url(content: str) -> str:
-    pattern = r"https?://[^\s\"'}]+\.m3u8"
+    """
+    Extract m3u8 URL from HTML content.
+    
+    Tries multiple methods:
+    1. JSON extraction from Next.js data (serverC.hls or serverM.hls) - PREFERRED
+    2. Direct URL pattern matching in HTML
+    """
+    import json
+    
+    # Method 1: Extract from Next.js JSON data FIRST (more reliable)
+    # Handle both escaped (\") and regular (") quotes in JSON
+    # Look for patterns like: "serverC":{"id":"serverC","hls":"https://...m3u8"
+    # Or escaped: \"serverC\":{\"id\":\"serverC\",\"hls\":\"https://...m3u8\"
+    try:
+        # Pattern 1: Try with escaped quotes (common in Next.js __NEXT_DATA__)
+        json_pattern = r'\\?"(?:serverC|serverM)\\?":\s*\{[^}]*\\?"hls\\?"\s*:\s*\\?"([^\\?"]+\.m3u8[^\\?"]*)'
+        json_matches = re.findall(json_pattern, content)
+        
+        if json_matches:
+            # Unescape JSON escaping (\/)
+            clean_urls = []
+            for match in json_matches:
+                url = match.replace(r'\/', '/')
+                if "fallback=origin" not in url:
+                    clean_urls.append(url)
+            
+            if clean_urls:
+                return clean_urls[0]
+            # If all have fallback, use first one
+            return json_matches[0].replace(r'\/', '/')
+        
+        # Pattern 2: Try finding in unescaped JSON (backup)
+        json_pattern2 = r'"(?:serverC|serverM)":\s*\{[^}]*"hls"\s*:\s*"([^"]+\.m3u8[^"]*)"'
+        json_matches2 = re.findall(json_pattern2, content)
+        
+        if json_matches2:
+            clean_urls = [url for url in json_matches2 if "fallback=origin" not in url]
+            if clean_urls:
+                return clean_urls[0]
+            return json_matches2[0]
+            
+    except Exception as e:
+        pass
+    
+    # Method 2: Direct pattern matching in HTML (fallback)
+    pattern = r"https?://[^\s\"'}\\]+\.m3u8(?:\?[^\s\"'}\\]*)?"
     matches = re.findall(pattern, content)
-
-    if not matches:
-        raise Exception("No m3u8 urls found")
-
-    return matches[0]
+    
+    if matches:
+        # Filter out URLs with "fallback=origin" and prefer clean URLs
+        clean_matches = [m for m in matches if "fallback=origin" not in m]
+        return clean_matches[0] if clean_matches else matches[0]
+    
+    raise Exception("No m3u8 urls found")
 
 
 def get_subtitles_url(content: str) -> list[str] | None:

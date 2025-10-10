@@ -245,15 +245,23 @@ async def get_draft_chapters(page: Page) -> list[Chapter]:
 
 @Cache.cache_async
 async def get_unit(context: BrowserContext, url: str) -> Unit:
-    TYPE_SELECTOR = ".VideoPlayer"
-    # Try multiple possible selectors for the title (Platzi may change their class names)
+    # Multiple selectors for video player - Platzi may use different class names
+    VIDEO_PLAYER_SELECTORS = [
+        ".VideoPlayer",
+        'div[class*="VideoPlayer"]',
+        '[data-vjs-player]',
+        'div.VideoWithChallenges_VideoWithChallenges__cgfF7',
+    ]
+    
     TITLE_SELECTORS = [
-        "h1.MaterialHeading_MaterialHeading__title__sDUKY",
-        "h1[class*='MaterialHeading']",  # More flexible - matches any class containing MaterialHeading
-        "main h1",  # Generic fallback
-        "h1",  # Last resort
+        "h1[class*='MaterialHeading']",
+        "main h1",
+        "h1",
     ]
     EXCEPTION = Exception("Could not collect unit data")
+    
+    # Debug mode - Set to True to see detailed logs during video detection
+    DEBUG_MODE = False
 
     # --- NEW CONSTANTS ----
     SECTION_FILES = '//h4[normalize-space(text())="Archivos de la clase"]'
@@ -289,9 +297,15 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
     page = None
     try:
         page = await context.new_page()
+        
+        if DEBUG_MODE:
+            print(f"[DEBUG] Opening URL: {url}")
+        
         await page.goto(url, wait_until="domcontentloaded")
-
         await asyncio.sleep(5)  # delay to avoid rate limiting
+        
+        if DEBUG_MODE:
+            print(f"[DEBUG] Page loaded, waiting completed")
 
         # Try multiple selectors with increased timeout
         title = None
@@ -304,30 +318,108 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                 continue
         
         if not title:
-            # If all selectors failed, log the page content for debugging
-            print(f"ERROR: Could not find title for URL: {url}")
-            print("Available h1 elements:")
-            h1_elements = await page.locator("h1").all()
-            for i, h1 in enumerate(h1_elements):
-                h1_text = await h1.text_content()
-                print(f"  h1[{i}]: {h1_text}")
             raise Exception(f"Could not find title on page: {url}")
 
-        if not await page.locator(TYPE_SELECTOR).is_visible():
-            return Unit(
-                url=url,
-                title=title,
-                type=TypeUnit.LECTURE,
-                slug=slugify(title),
-            )
-
-        # It's a video unit
-        content = await page.content()
-        unit_type = TypeUnit.VIDEO
-        video = Video(
-            url=get_m3u8_url(content),
-            subtitles_url=get_subtitles_url(content),
-        )
+        # Try to determine if it's a video or lecture
+        unit_type = TypeUnit.LECTURE
+        video = None
+        
+        if DEBUG_MODE:
+            print(f"[DEBUG] Starting video player detection for: {title}")
+        
+        # Try multiple video player selectors
+        video_player_found = False
+        for selector in VIDEO_PLAYER_SELECTORS:
+            try:
+                count = await page.locator(selector).count()
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Checking selector '{selector}': found {count} elements")
+                
+                if count > 0:
+                    video_player_found = True
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] ✅ Video player found with: {selector}")
+                    break
+            except Exception as e:
+                if DEBUG_MODE:
+                    print(f"[DEBUG] ❌ Selector '{selector}' failed: {str(e)[:50]}")
+                continue
+        
+        if video_player_found:
+            if DEBUG_MODE:
+                print(f"[DEBUG] Video player found, checking for m3u8...")
+            
+            # VideoPlayer found, wait for video content to load
+            await asyncio.sleep(3)
+            content = await page.content()
+            
+            # Try to find m3u8 URL with retries
+            m3u8_found = False
+            max_retries = 5
+            
+            for attempt in range(max_retries):
+                try:
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} to find m3u8...")
+                    
+                    m3u8_url = get_m3u8_url(content)
+                    
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] ✅ m3u8 found: {m3u8_url[:80]}...")
+                    
+                    unit_type = TypeUnit.VIDEO
+                    video = Video(
+                        url=m3u8_url,
+                        subtitles_url=get_subtitles_url(content),
+                    )
+                    m3u8_found = True
+                    break
+                except Exception as e:
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Attempt {attempt + 1} failed: {str(e)[:80]}")
+                    
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 + attempt)
+                        content = await page.content()
+                    else:
+                        # Last attempt - check for video indicators
+                        try:
+                            has_video_controls = await page.locator('.vjs-control-bar, [data-vjs-player]').count() > 0
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] Video controls detected: {has_video_controls}")
+                            
+                            if has_video_controls:
+                                if DEBUG_MODE:
+                                    print(f"[DEBUG] Waiting extra time for video...")
+                                await asyncio.sleep(3)
+                                content = await page.content()
+                                try:
+                                    m3u8_url = get_m3u8_url(content)
+                                    unit_type = TypeUnit.VIDEO
+                                    video = Video(
+                                        url=m3u8_url,
+                                        subtitles_url=get_subtitles_url(content),
+                                    )
+                                    m3u8_found = True
+                                    if DEBUG_MODE:
+                                        print(f"[DEBUG] ✅ m3u8 found after extra wait")
+                                except Exception:
+                                    if DEBUG_MODE:
+                                        print(f"[DEBUG] ❌ Still no m3u8 found")
+                                    pass
+                        except Exception:
+                            pass
+            
+            if not m3u8_found:
+                unit_type = TypeUnit.LECTURE
+                video = None
+                if DEBUG_MODE:
+                    print(f"[DEBUG] ❌ No m3u8 found, marking as LECTURE")
+        else:
+            # No VideoPlayer element, it's a lecture
+            content = await page.content()
+            if DEBUG_MODE:
+                print(f"[DEBUG] ❌ No video player found, it's a LECTURE")
 
         # --- Get resources and summary---
         html_summary = None

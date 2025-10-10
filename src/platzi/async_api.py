@@ -69,12 +69,62 @@ class AsyncPlatzi:
         self.user = None
 
     async def __aenter__(self):
+        from .constants import USER_AGENT
+        
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        self._browser = await self._playwright.chromium.launch(
+            headless=self.headless,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+            ]
+        )
+        
+        # Desktop configuration
         self._context = await self._browser.new_context(
             java_script_enabled=True,
-            is_mobile=True,
+            user_agent=USER_AGENT,
+            viewport={'width': 1920, 'height': 1080},
+            device_scale_factor=1,
+            is_mobile=False,
+            has_touch=False,
+            locale='es-ES',
+            timezone_id='America/Mexico_City',
         )
+        
+        # Add anti-detection script to all pages
+        await self._context.add_init_script("""
+            // Override webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            
+            // Override chrome property
+            window.navigator.chrome = {
+                runtime: {},
+            };
+            
+            // Override permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            
+            // Override plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            // Override languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['es-ES', 'es', 'en-US', 'en']
+            });
+        """)
 
         try:
             await self._load_state()
