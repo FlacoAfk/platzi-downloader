@@ -196,9 +196,25 @@ class ProgressTracker:
             return self.data["courses"][course_id]["units"][unit_id]["status"] == DownloadStatus.COMPLETED.value
         return False
     
+    def has_pending_units(self, course_id: str) -> bool:
+        """Check if a course has any pending or in-progress units."""
+        if course_id not in self.data["courses"]:
+            return False
+        
+        course_data = self.data["courses"][course_id]
+        
+        # Check if any unit is pending or in progress
+        for unit_id, unit_data in course_data.get("units", {}).items():
+            unit_status = unit_data.get("status")
+            if unit_status in [DownloadStatus.PENDING.value, DownloadStatus.IN_PROGRESS.value, DownloadStatus.FAILED.value]:
+                return True
+        
+        return False
+    
     def should_skip_course(self, course_id: str) -> bool:
-        """Determine if a course should be skipped (already completed)."""
-        return self.is_course_completed(course_id)
+        """Determine if a course should be skipped (already completed AND no pending units)."""
+        # Skip only if course is completed AND has no pending units
+        return self.is_course_completed(course_id) and not self.has_pending_units(course_id)
     
     def should_skip_unit(self, course_id: str, unit_id: str) -> bool:
         """Determine if a unit should be skipped (already completed)."""

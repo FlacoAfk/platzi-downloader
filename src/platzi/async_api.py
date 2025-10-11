@@ -289,10 +289,14 @@ class AsyncPlatzi:
             for idx, course_url in enumerate(course_urls, 1):
                 course_id = urlparse(course_url).path
                 
-                # Check if course was already completed
+                # Check if course was already completed AND has no pending units
                 if self.progress.should_skip_course(course_id):
-                    Logger.info(f"⏭️  Skipping course {idx}/{len(course_urls)} (already completed): {course_url}")
+                    Logger.info(f"⏭️  Skipping course {idx}/{len(course_urls)} (already completed, no pending units): {course_url}")
                     continue
+                
+                # Check if course has pending units
+                if self.progress.has_pending_units(course_id):
+                    Logger.info(f"🔄 Re-processing course {idx}/{len(course_urls)} (has pending units): {course_url}")
                 
                 Logger.info(f"\n{'='*100}")
                 Logger.info(f"Downloading course {idx}/{len(course_urls)}: {course_url}")
@@ -325,10 +329,14 @@ class AsyncPlatzi:
         """Download a single course."""
         course_id = urlparse(url).path
         
-        # Check if course was already completed
+        # Check if course was already completed AND has no pending units
         if self.progress.should_skip_course(course_id):
-            Logger.info(f"⏭️  Course already completed, skipping: {url}")
+            Logger.info(f"⏭️  Course already completed (no pending units), skipping: {url}")
             return
+        
+        # Check if course has pending units
+        if self.progress.has_pending_units(course_id):
+            Logger.info(f"🔄 Re-processing course (has pending units): {url}")
         
         page = await self.page
         

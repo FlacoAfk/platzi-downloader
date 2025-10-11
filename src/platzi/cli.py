@@ -146,6 +146,44 @@ def batch_download(
     asyncio.run(_batch_download(file_path, quality=quality, overwrite=overwrite, clear_cache_after_each=clear_cache_after_each))
 
 
+@app.command()
+def retry_failed(
+    quality: Annotated[
+        str,
+        typer.Option(
+            "--quality",
+            "-q",
+            help="The quality of the video to download.",
+            show_default=True,
+        ),
+    ] = False,
+    checkpoint_file: Annotated[
+        str,
+        typer.Option(
+            "--checkpoint",
+            "-f",
+            help="Path to the checkpoint file.",
+            show_default=True,
+        ),
+    ] = "download_progress.json",
+):
+    """
+    Retry downloading all failed courses and units from the checkpoint file.
+    
+    This command reads the download_progress.json file and attempts to
+    re-download all items that previously failed.
+
+    Usage:
+        platzi retry-failed
+        platzi retry-failed --quality 720
+        platzi retry-failed --checkpoint custom_progress.json
+
+    Example:
+        platzi retry-failed
+    """
+    asyncio.run(_retry_failed(quality=quality, checkpoint_file=checkpoint_file))
+
+
 async def _login():
     async with AsyncPlatzi() as platzi:
         await platzi.login()
@@ -258,3 +296,91 @@ async def _batch_download(file_path: str, **kwargs):
         print("[bold red]❌ All downloads failed[/bold red]")
     
     print(f"[bold green]{'='*100}[/bold green]\n")
+
+
+async def _retry_failed(quality: str = False, checkpoint_file: str = "download_progress.json"):
+    """Retry all failed downloads from the checkpoint file."""
+    from pathlib import Path
+    from platzi.progress_tracker import ProgressTracker
+    
+    checkpoint_path = Path(checkpoint_file)
+    
+    if not checkpoint_path.exists():
+        print(f"[red]Error: Checkpoint file '{checkpoint_file}' not found![/red]")
+        print(f"[yellow]No failed downloads to retry.[/yellow]")
+        return
+    
+    # Load progress tracker
+    tracker = ProgressTracker(checkpoint_file)
+    
+    # Get failed items
+    failed_courses = tracker.get_failed_courses()
+    failed_units = tracker.get_failed_units()
+    
+    total_failed = len(failed_courses) + len(failed_units)
+    
+    if total_failed == 0:
+        print("[green]✅ No failed downloads found! All items completed successfully.[/green]")
+        return
+    
+    print(f"\n[bold yellow]{'='*100}[/bold yellow]")
+    print(f"[bold yellow]🔄 Retrying {total_failed} failed downloads[/bold yellow]")
+    print(f"[bold yellow]   - {len(failed_courses)} failed courses[/bold yellow]")
+    print(f"[bold yellow]   - {len(failed_units)} failed units[/bold yellow]")
+    print(f"[bold yellow]{'='*100}[/bold yellow]\n")
+    
+    successful = 0
+    still_failed = 0
+    
+    async with AsyncPlatzi() as platzi:
+        # Retry failed courses
+        if failed_courses:
+            print(f"[bold cyan]📚 Retrying {len(failed_courses)} failed courses...[/bold cyan]\n")
+            
+            for idx, (course_id, course_data) in enumerate(failed_courses.items(), 1):
+                title = course_data.get('title', 'Unknown')
+                error = course_data.get('error', 'Unknown error')
+                
+                print(f"\n[bold blue]{'='*100}[/bold blue]")
+                print(f"[bold blue]🔄 Retrying course {idx}/{len(failed_courses)}: {title}[/bold blue]")
+                print(f"[yellow]Previous error: {error}[/yellow]")
+                print(f"[bold blue]{'='*100}[/bold blue]\n")
+                
+                # Construct URL from course_id (assuming pattern)
+                url = f"https://platzi.com/cursos/{course_id}/"
+                
+                try:
+                    # Reset the course status before retrying
+                    tracker.reset_course(course_id)
+                    
+                    await platzi.download(url, quality=quality, overwrite=True)
+                    successful += 1
+                    print(f"\n[green]✅ Successfully retried course: {title}[/green]")
+                    
+                except Exception as e:
+                    still_failed += 1
+                    print(f"\n[red]❌ Still failed: {title}[/red]")
+                    print(f"[red]Error: {e}[/red]")
+        
+        # Note: For failed units, we would need more context about which course they belong to
+        # For now, we'll focus on failed courses
+        if failed_units:
+            print(f"\n[yellow]ℹ️  {len(failed_units)} failed units detected.[/yellow]")
+            print(f"[yellow]These will be retried when their parent courses are re-downloaded.[/yellow]")
+    
+    # Summary
+    print(f"\n[bold green]{'='*100}[/bold green]")
+    print(f"[bold green]📊 RETRY SUMMARY[/bold green]")
+    print(f"[bold green]{'='*100}[/bold green]")
+    print(f"[green]Total retried: {len(failed_courses)}[/green]")
+    print(f"[green]✅ Successful: {successful}[/green]")
+    print(f"[red]❌ Still failed: {still_failed}[/red]")
+    print(f"[bold green]{'='*100}[/bold green]\n")
+    
+    if successful == len(failed_courses):
+        print("[bold green]🎉 All failed items successfully retried![/bold green]")
+    elif successful > 0:
+        print(f"[bold yellow]⚠️  Completed with {still_failed} item(s) still failing[/bold yellow]")
+    else:
+        print("[bold red]❌ All retries failed[/bold red]")
+

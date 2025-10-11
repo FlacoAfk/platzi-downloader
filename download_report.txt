@@ -3,26 +3,22 @@
 ====================================================================================================
 
 Session started: 2025-10-10T14:09:52.378215
-Last updated: 2025-10-10T19:02:44.520923
+Last updated: 2025-10-10T22:23:42.651211
 
 📈 STATISTICS:
-  Courses: 8/13 completed, 0 failed
-  Units: 345/364 completed, 14 failed
+  Courses: 17/31 completed, 0 failed
+  Units: 754/788 completed, 22 failed
 
 🗂️  LEARNING PATHS:
-  🔄 Fundamentos del Desarrollo Web Profesional: 7/10 courses completed
+  ✅ Fundamentos del Desarrollo Web Profesional: 1/10 courses completed
+  🔄 Desarrollo Frontend con Angular: 1/10 courses completed
 
 ❌ ERRORS:
-  - [UNIT] Implementación de Ataques en Tiempo Real para Videojuego Mokepon: Error collecting unit data: Could not collect unit data
-  - [UNIT] Corrección de errores en juego multijugador con Node.js: Error collecting unit data: Could not collect unit data
-  - [UNIT] Instalación y Configuración de JavaScript en Visual Studio Code: Error collecting unit data: Could not collect unit data
-  - [UNIT] Estructuras Condicionales: Uso de IF, ELSE y ELSE IF en JavaScript: Error collecting unit data: Could not collect unit data
-  - [UNIT] Iteración con for-of en JavaScript para arrays y strings: Error collecting unit data: Could not collect unit data
-  - [UNIT] Iteración sobre Objetos con forIn en JavaScript: Error collecting unit data: Could not collect unit data
-  - [UNIT] Uso del ciclo while para iteración en programación: Error collecting unit data: Could not collect unit data
-  - [UNIT] Arrow Functions y Enlace Léxico en JavaScript: Error collecting unit data: Could not collect unit data
-  - [UNIT] Mutabilidad e inmutabilidad en arrays: conceptos y ejemplos prácticos: Error collecting unit data: Could not collect unit data
-  - [UNIT] Métodos find y findIndex en JavaScript: Uso y ejemplos prácticos: Error collecting unit data: Could not collect unit data
-  ... and 4 more errors
+  - [UNIT] Creación y Uso de Directivas en Angular para Manipular el DOM: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Reactividad y Manejo de Estado en Angular con NGRX: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Implementación de Linter en Angular para Buenas Prácticas de Código: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Componentes y Servicios en Aplicaciones Web: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Formularios en Angular: Creación y Manejo Efectivo: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Formularios Reactivos en Angular: Creación y Optimización: Error collecting unit data: Could not collect unit data for 'Unknown'
 
 ====================================================================================================

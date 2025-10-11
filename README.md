@@ -14,14 +14,13 @@ Es una herramienta de línea de comandos para descargar cursos directamente desd
 
 - 📥 **Descarga completa de cursos**: Videos, lecturas, quizzes, recursos y más
 - 🎯 **Rutas de aprendizaje**: Descarga rutas completas con todos sus cursos organizados
-- 🔄 **Reanudación automática**: Si se interrumpe la descarga (corte de luz, error), continúa desde donde quedó
+- 🔄 **Reanudación automática**: Si se interrumpe la descarga, continúa desde donde quedó
 - 📊 **Seguimiento de progreso**: Control completo de qué se descargó y qué falló
 - 💾 **Reportes detallados**: Genera reportes con estadísticas completas
-- 🪟 **Modo discreto**: El navegador se abre minimizado para no interferir con tu trabajo
+- 🔁 **Sistema de reintentos**: Hasta 3 intentos automáticos por clase con errores de conexión
 - ⚡ **Descarga por lotes**: Descarga múltiples cursos desde un archivo de texto
 - 🎨 **Resúmenes con estilo**: Los resúmenes se guardan con formato HTML profesional
-
-> 📖 **[Ver documentación completa del sistema de progreso](PROGRESS_TRACKING.md)**
+- �️ **Herramientas de gestión**: Scripts para ver estadísticas y reintentar clases fallidas
 
 ![GitHub repo size](https://img.shields.io/github/repo-size/ivansaul/platzi-downloader)
 ![GitHub stars](https://img.shields.io/github/stars/ivansaul/platzi-downloader)
@@ -183,6 +182,50 @@ Para borrar la caché de Platzi, usa el comando `clear-cache`.
 platzi clear-cache
 ```
 
+## 🛠️ Herramientas de Gestión
+
+El proyecto incluye scripts auxiliares para gestionar descargas y resolver problemas.
+
+📖 **[Ver guía completa de herramientas](TOOLS.md)**
+
+### Ver Estadísticas de Descarga
+
+```console
+python show_stats.py
+```
+
+Muestra:
+- Total de cursos y clases completadas
+- Porcentaje de progreso
+- Clases fallidas con detalles
+- Recomendaciones
+
+### Reintentar Clases Fallidas
+
+Si algunas clases fallaron, puedes reintentar su descarga:
+
+```console
+python reset_failed_classes.py
+python -m platzi download
+```
+
+Esto:
+1. Identifica clases con estado "failed"
+2. Las marca como "pending"
+3. Crea un archivo `clases_a_reintentar.txt` con el listado
+4. Al ejecutar download nuevamente, reintenta descargarlas
+
+### Forzar Descarga de Clases Pendientes
+
+Si hay clases en estado "pending" que no se están descargando:
+
+```console
+python force_download_pending.py
+python -m platzi download
+```
+
+Esto elimina las clases pendientes del registro para que se descarguen como nuevas.
+
 > [!IMPORTANT]
 > Asegúrate de estar logueado antes de intentar descargar los cursos.
 
@@ -200,6 +243,11 @@ platzi clear-cache
 
 > [!TIP]
 > Luego de actualizar el script u obtener algún error inesperado se recomienda limpiar la caché antes de volver a intentar descargar el curso. Puedes hacerlo ejecutando el comando `platzi clear-cache`.
+
+<br>
+
+> [!TIP]
+> Si algunas clases fallan por errores de conexión (ERR_CONNECTION_CLOSED), el sistema reintentará automáticamente hasta 3 veces por clase. Si persisten los errores, usa `python force_download_pending.py` para reintentar.
 
 ## **Aviso de Uso**
 

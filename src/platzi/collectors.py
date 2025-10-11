@@ -258,6 +258,9 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         "main h1",
         "h1",
     ]
+    
+    # Selector para detectar página de error 500
+    ERROR_500_SELECTOR = 'h1:has-text("Error 500")'
     EXCEPTION = Exception("Could not collect unit data")
     
     # Debug mode - Set to True to see detailed logs during video detection
@@ -301,11 +304,50 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         if DEBUG_MODE:
             print(f"[DEBUG] Opening URL: {url}")
         
-        await page.goto(url, wait_until="domcontentloaded")
-        await asyncio.sleep(5)  # delay to avoid rate limiting
+        # Intentar cargar la página con reintentos
+        max_retries = 3
+        retry_delay = 10  # segundos entre reintentos
+        
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(retry_delay * attempt)  # Delay incremental
+                
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                
+                # Esperar un poco para que la página cargue
+                await asyncio.sleep(5)
+                
+                # Verificar si es una página de error 500
+                error_500_exists = await page.locator(ERROR_500_SELECTOR).count() > 0
+                
+                if error_500_exists:
+                    if attempt < max_retries - 1:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Error 500 detected, retrying...")
+                        continue
+                    else:
+                        raise Exception(f"Server returned Error 500 after {max_retries} attempts: {url}")
+                
+                # Si llegamos aquí, la página cargó correctamente
+                break
+                
+            except Exception as e:
+                if "net::ERR_CONNECTION_CLOSED" in str(e) or "ERR_CONNECTION_RESET" in str(e):
+                    if attempt < max_retries - 1:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Connection error, retrying... ({str(e)})")
+                        continue
+                    else:
+                        raise Exception(f"Connection failed after {max_retries} attempts: {str(e)}")
+                else:
+                    # Otro tipo de error, no reintentar
+                    raise
         
         if DEBUG_MODE:
-            print(f"[DEBUG] Page loaded, waiting completed")
+            print(f"[DEBUG] Page loaded successfully, extracting data")
 
         # Try multiple selectors with increased timeout
         title = None
@@ -546,7 +588,19 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         import traceback
         error_details = traceback.format_exc()
         print(f"Error details: {error_details}")
-        raise EXCEPTION from e
+        
+        # Crear mensaje de error más detallado
+        error_msg = f"Could not collect unit data for '{title if 'title' in locals() else 'Unknown'}'"
+        
+        # Añadir contexto adicional según el tipo de error
+        if "Error 500" in str(e):
+            error_msg += " - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers."
+        elif "ERR_CONNECTION_CLOSED" in str(e) or "ERR_CONNECTION_RESET" in str(e):
+            error_msg += " - Connection was closed by the server. This may indicate rate limiting or temporary server issues."
+        elif "Could not find title" in str(e):
+            error_msg += " - Could not extract the class title from the page."
+        
+        raise Exception(error_msg) from e
 
     finally:
         if page:

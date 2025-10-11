@@ -1,6 +1,8 @@
 # Custom
 .DS_Store
 *.json
+!pyproject.json
+!course_links.json
 bin/
 downloads/
 Courses/
@@ -9,6 +11,14 @@ Courses/
 *.ts
 *.mhtml
 *.vtt
+
+# Archivos generados por herramientas
+clases_a_reintentar.txt
+clases_pendientes_a_descargar.txt
+download_report.txt
+
+# Archivos de progreso (comentar si quieres hacer commit del progreso)
+download_progress.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
