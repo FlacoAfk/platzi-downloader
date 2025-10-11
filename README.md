@@ -10,6 +10,19 @@
 
 Es una herramienta de línea de comandos para descargar cursos directamente desde la terminal. Utiliza  ***`Python`*** y ***`Playwright`*** para automatizar el proceso de descarga y proporciona una interfaz de usuario amigable.
 
+## ✨ Características Principales
+
+- 📥 **Descarga completa de cursos**: Videos, lecturas, quizzes, recursos y más
+- 🎯 **Rutas de aprendizaje**: Descarga rutas completas con todos sus cursos organizados
+- 🔄 **Reanudación automática**: Si se interrumpe la descarga (corte de luz, error), continúa desde donde quedó
+- 📊 **Seguimiento de progreso**: Control completo de qué se descargó y qué falló
+- 💾 **Reportes detallados**: Genera reportes con estadísticas completas
+- 🪟 **Modo discreto**: El navegador se abre minimizado para no interferir con tu trabajo
+- ⚡ **Descarga por lotes**: Descarga múltiples cursos desde un archivo de texto
+- 🎨 **Resúmenes con estilo**: Los resúmenes se guardan con formato HTML profesional
+
+> 📖 **[Ver documentación completa del sistema de progreso](PROGRESS_TRACKING.md)**
+
 ![GitHub repo size](https://img.shields.io/github/repo-size/ivansaul/platzi-downloader)
 ![GitHub stars](https://img.shields.io/github/stars/ivansaul/platzi-downloader)
 ![GitHub forks](https://img.shields.io/github/forks/ivansaul/platzi-downloader)
@@ -108,6 +121,59 @@ platzi download https://platzi.com/cursos/python/ -q 720
 ```console
 platzi download https://platzi.com/cursos/python -w
 ```
+
+### Descarga por Lotes (Batch Download) 🆕
+
+Para descargar múltiples cursos y rutas automáticamente desde un archivo de texto, usa el comando `batch-download`. Esta es la forma más eficiente de descargar múltiples contenidos.
+
+```console
+platzi batch-download [FILE] [OPTIONS]
+
+FILE: Path to text file with URLs (default: urls.txt)
+
+OPTIONS:
+  --quality / -q      Specifies the video quality. Options: [1080|720].
+  --overwrite / -w    Overwrite files if exist.
+  --clear-cache / -c  Clear cache after each download (default: enabled).
+  --no-clear-cache    Disable cache clearing after each download.
+```
+
+**Formato del archivo de URLs (`urls.txt`):**
+
+```txt
+# Comentarios empiezan con #
+# Una URL por línea
+
+https://platzi.com/ruta/desarrollo-frontend-angular/
+https://platzi.com/ruta/desarrollo-backend-con-python/
+https://platzi.com/cursos/python/
+```
+
+**Ejemplos:**
+
+```console
+# Usar archivo por defecto (urls.txt)
+platzi batch-download
+```
+
+```console
+# Especificar archivo personalizado
+platzi batch-download my_courses.txt
+```
+
+```console
+# Con opciones adicionales
+platzi batch-download urls.txt --quality 1080 --overwrite
+```
+
+**Características:**
+- ✅ Descarga múltiples URLs en orden secuencial
+- ✅ Limpieza automática de caché después de cada descarga
+- ✅ Manejo robusto de errores (continúa si una descarga falla)
+- ✅ Soporte para comentarios en el archivo
+- ✅ Informe detallado al finalizar
+
+📖 **[Ver guía completa de Batch Download](BATCH_DOWNLOAD.md)**
 
 ### Borrar Caché
 

@@ -1,0 +1,60 @@
+# Lista de cursos y rutas de Platzi para descargar
+# Líneas que comienzan con # son comentarios y serán ignoradas
+# Una URL por línea
+
+# Ejemplo de cursos individuales
+# https://platzi.com/cursos/python/
+# https://platzi.com/cursos/javascript-basico/
+
+https://platzi.com/ruta/intro-desarrollo-web/
+https://platzi.com/ruta/desarrollo-frontend-angular/
+https://platzi.com/ruta/desarrollo-frontend-react-js/
+https://platzi.com/ruta/desarrollo-backend-con-nodejs/
+https://platzi.com/ruta/desarrollo-backend-con-python/
+https://platzi.com/ruta/desarrollo-backend-con-java/
+https://platzi.com/ruta/desarrollo-backend-con-php/
+https://platzi.com/ruta/desarrollo-backend-con-ruby/
+https://platzi.com/ruta/bases-de-datos-para-web/
+https://platzi.com/ruta/seguridad-web-api/
+https://platzi.com/ruta/testing-automatizado-y-qa-para-web/
+https://platzi.com/ruta/arquitecturas-web-modernas-y-escalabilidad/
+https://platzi.com/ruta/devops-y-cloud-para-desarrolladores-web/
+https://platzi.com/ruta/beginner-core/
+https://platzi.com/ruta/beginner-core2/
+https://platzi.com/ruta/intermediate-core/
+https://platzi.com/ruta/intermediate-core2/
+https://platzi.com/ruta/advanced-core/
+https://platzi.com/ruta/complementary/
+https://platzi.com/ruta/ingles-negocios/
+https://platzi.com/ruta/fundamentos-de-cloud-y-devops/
+https://platzi.com/ruta/administracion-de-servidores-linux/
+https://platzi.com/ruta/contenerizacion-y-orquestacion/
+https://platzi.com/ruta/infraestructura-como-codigo-iac-y-ci-cd/
+https://platzi.com/ruta/plataforma-cloud-aws/
+https://platzi.com/ruta/plataforma-cloud-azure/
+https://platzi.com/ruta/serverless-y-observabilidad/
+https://platzi.com/ruta/certificaciones-cloud-preparacion/
+https://platzi.com/ruta/plataforma-cloud-gcp/
+https://platzi.com/ruta/fundamentos-de-ciberseguridad/
+https://platzi.com/ruta/hacking-etico-y-pentesting/
+https://platzi.com/ruta/analisis-de-malware-e-ingenieria-forense/
+https://platzi.com/ruta/seguridad-defensiva-y-cumplimiento-blue-team/
+https://platzi.com/ruta/ciberseguridad-estrategica-y-gestion/
+https://platzi.com/ruta/fundamentos-de-data-science-y-ai/
+https://platzi.com/ruta/analisis-y-visualizacion-de-datos/
+https://platzi.com/ruta/machine-learning-y-deep-learning/
+https://platzi.com/ruta/ingeniero-datos/
+https://platzi.com/ruta/inteligencia-artificial-para-la-productividad/
+https://platzi.com/ruta/desarrollo-de-aplicaciones-con-ia/
+https://platzi.com/ruta/fundamentos-de-desarrollo-movil/
+https://platzi.com/ruta/desarrollo-nativo-android-con-kotlin/
+https://platzi.com/ruta/desarrollo-nativo-ios-con-swift/
+https://platzi.com/ruta/desarrollo-multiplataforma-con-react-native/
+https://platzi.com/ruta/desarrollo-multiplataforma-con-flutter/
+https://platzi.com/ruta/arquitectura-y-patrones-de-diseno-movil/
+https://platzi.com/ruta/integracion-de-apis-y-persistencia-movil/
+https://platzi.com/ruta/testing-y-despliegue-en-movil/
+https://platzi.com/ruta/diseno-ux-ui-para-moviles/
+https://platzi.com/cursos/cobol-practico/
+https://platzi.com/cursos/cobol/
+https://platzi.com/cursos/windsurf/

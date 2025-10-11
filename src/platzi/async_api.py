@@ -2,9 +2,10 @@ import asyncio
 import functools
 import json
 import os
+import platform
 import time
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import aiofiles
 from playwright.async_api import BrowserContext, Page, async_playwright
@@ -24,6 +25,7 @@ from .helpers import read_json, write_json
 from .logger import Logger
 from .m3u8 import m3u8_dl
 from .models import TypeUnit, User
+from .progress_tracker import ProgressTracker
 from .utils import clean_string, download, progressive_scroll, safe_path
 
 
@@ -62,11 +64,56 @@ def try_except_request(func):
     return wrapper
 
 
+def _minimize_browser_window():
+    """Minimize the browser window using OS-specific commands."""
+    try:
+        if platform.system() == "Windows":
+            import ctypes
+            import time as sync_time
+            
+            # Wait a bit for window to be created
+            sync_time.sleep(1)
+            
+            # Windows API constants
+            SW_MINIMIZE = 6
+            
+            # List to store window handles
+            windows_found = []
+            
+            # Find window by title containing "Chrome" or "Chromium"
+            def enum_windows_callback(hwnd, lParam):
+                if ctypes.windll.user32.IsWindowVisible(hwnd):
+                    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buffer = ctypes.create_unicode_buffer(length + 1)
+                        ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+                        title = buffer.value
+                        if 'Chrome' in title or 'Chromium' in title or 'Platzi' in title:
+                            windows_found.append(hwnd)
+                return True
+            
+            # Define callback type
+            EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
+            
+            # Enumerate all windows
+            ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), 0)
+            
+            # Minimize all Chrome/Chromium windows
+            for hwnd in windows_found:
+                ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+                
+    except Exception as e:
+        # If minimization fails, continue anyway (not critical)
+        pass
+
+
+
 class AsyncPlatzi:
     def __init__(self, headless=False):
         self.loggedin = False
         self.headless = headless
         self.user = None
+        self.progress = ProgressTracker()
 
     async def __aenter__(self):
         from .constants import USER_AGENT
@@ -80,6 +127,7 @@ class AsyncPlatzi:
                 '--no-sandbox',
                 '--disable-web-security',
                 '--disable-features=IsolateOrigins,site-per-process',
+                '--window-position=-2400,-2400',  # Position off-screen
             ]
         )
         
@@ -132,10 +180,20 @@ class AsyncPlatzi:
             pass
 
         await self._set_profile()
+        
+        # Minimize browser window if not in headless mode
+        if not self.headless:
+            await asyncio.sleep(0.5)  # Give browser time to fully open
+            _minimize_browser_window()
 
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        # Generate and save final report
+        print("\n")
+        print(self.progress.generate_report())
+        self.progress.save_final_report()
+        
         await self._context.close()
         await self._browser.close()
         await self._playwright.stop()
@@ -189,6 +247,9 @@ class AsyncPlatzi:
     @try_except_request
     @login_required
     async def download(self, url: str, **kwargs):
+        # Start progress tracking session
+        self.progress.start_session()
+        
         page = await self.page
         await page.goto(url)
 
@@ -208,6 +269,8 @@ class AsyncPlatzi:
         try:
             # Get learning path title
             path_title = await get_learning_path_title(page)
+            path_id = urlparse(url).path  # Use URL path as unique ID
+            
             Logger.info(f"\n{'='*100}")
             Logger.info(f"Learning Path: {path_title}")
             Logger.info(f"{'='*100}\n")
@@ -215,12 +278,22 @@ class AsyncPlatzi:
             # Get all course URLs from the learning path
             course_urls = await get_learning_path_courses(page)
             Logger.info(f"Found {len(course_urls)} courses in this learning path\n")
+            
+            # Register learning path
+            self.progress.start_learning_path(path_id, path_title, len(course_urls))
 
             # Close the initial page
             await page.close()
 
             # Download each course with learning path context
             for idx, course_url in enumerate(course_urls, 1):
+                course_id = urlparse(course_url).path
+                
+                # Check if course was already completed
+                if self.progress.should_skip_course(course_id):
+                    Logger.info(f"⏭️  Skipping course {idx}/{len(course_urls)} (already completed): {course_url}")
+                    continue
+                
                 Logger.info(f"\n{'='*100}")
                 Logger.info(f"Downloading course {idx}/{len(course_urls)}: {course_url}")
                 Logger.info(f"{'='*100}\n")
@@ -229,10 +302,14 @@ class AsyncPlatzi:
                 await self._download_course(
                     course_url, 
                     learning_path_title=path_title,
+                    learning_path_id=path_id,
                     course_index=idx,
                     **kwargs
                 )
 
+            # Mark learning path as completed
+            self.progress.complete_learning_path(path_id)
+            
             Logger.info(f"\n{'='*100}")
             Logger.info(f"✅ Learning Path '{path_title}' completed! All {len(course_urls)} courses downloaded.")
             Logger.info(f"{'='*100}\n")
@@ -246,275 +323,318 @@ class AsyncPlatzi:
     @login_required
     async def _download_course(self, url: str, **kwargs):
         """Download a single course."""
+        course_id = urlparse(url).path
+        
+        # Check if course was already completed
+        if self.progress.should_skip_course(course_id):
+            Logger.info(f"⏭️  Course already completed, skipping: {url}")
+            return
+        
         page = await self.page
-        await page.goto(url)
-
-        # course title
-        course_title = await get_course_title(page)
-        # Logger.print(course_title, "[COURSE]")
-
-        # Check if this is part of a learning path
-        learning_path_title = kwargs.get("learning_path_title")
-        course_index = kwargs.get("course_index")
         
-        # download directory
-        # Apply length limits to avoid Windows 260 char path limit
-        if learning_path_title and course_index is not None:
-            # Structure: [Learning Path]/[N. Course]/
-            DL_DIR = Path("Courses") / clean_string(learning_path_title, max_length=60) / f"{course_index}. {clean_string(course_title, max_length=60)}"
-        else:
-            # Original structure for individual courses
-            DL_DIR = Path("Courses") / clean_string(course_title, max_length=80)
-        
-        DL_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            await page.goto(url)
 
-        # save page as mhtml
-        presentation_path = DL_DIR / "presentation.mhtml"
-        await self.save_page(page, path=presentation_path, **kwargs)
+            # course title
+            course_title = await get_course_title(page)
+            
+            # Register course start
+            learning_path_id = kwargs.get("learning_path_id")
+            self.progress.start_course(course_id, course_title, learning_path_id)
 
-        # iterate over chapters
-        draft_chapters = await get_draft_chapters(page)
+            # Check if this is part of a learning path
+            learning_path_title = kwargs.get("learning_path_title")
+            course_index = kwargs.get("course_index")
+            
+            # download directory
+            # Apply length limits to avoid Windows 260 char path limit
+            if learning_path_title and course_index is not None:
+                # Structure: [Learning Path]/[N. Course]/
+                DL_DIR = Path("Courses") / clean_string(learning_path_title, max_length=60) / f"{course_index}. {clean_string(course_title, max_length=60)}"
+            else:
+                # Original structure for individual courses
+                DL_DIR = Path("Courses") / clean_string(course_title, max_length=80)
+            
+            DL_DIR.mkdir(parents=True, exist_ok=True)
 
-        # --- Course Details Table ---
-        table = Table(title=course_title, caption="processing...", caption_style="green", title_style="green", header_style="green", footer_style="green", show_footer=True, box=box.SQUARE_DOUBLE_HEAD)
-        table.add_column("Sections", style="green", footer="Total", no_wrap=True)
-        table.add_column("Lessons", style="green", footer="0", justify="center")
+            # save page as mhtml
+            presentation_path = DL_DIR / "presentation.mhtml"
+            await self.save_page(page, path=presentation_path, **kwargs)
 
-        total_units = 0
+            # iterate over chapters
+            draft_chapters = await get_draft_chapters(page)
 
-        with Live(table, refresh_per_second=4):  # update 4 times a second to feel fluid
-            for idx, section in enumerate(draft_chapters, 1):
-                time.sleep(0.3)  # arbitrary delay
-                num_units = len(section.units)
-                total_units += num_units
-                table.add_row(f"{idx}-{section.name}", str(len(section.units)))
-                table.columns[1].footer = str(total_units)  # Update footer dynamically
+            # --- Course Details Table ---
+            table = Table(title=course_title, caption="processing...", caption_style="green", title_style="green", header_style="green", footer_style="green", show_footer=True, box=box.SQUARE_DOUBLE_HEAD)
+            table.add_column("Sections", style="green", footer="Total", no_wrap=True)
+            table.add_column("Lessons", style="green", footer="0", justify="center")
 
-        for idx, draft_chapter in enumerate(draft_chapters, 1):
-            Logger.info(f"Creating directory: {draft_chapter.name}")
+            total_units = 0
 
-            CHAP_DIR = DL_DIR / f"{idx}. {clean_string(draft_chapter.name, max_length=60)}"
-            CHAP_DIR.mkdir(parents=True, exist_ok=True)
+            with Live(table, refresh_per_second=4):  # update 4 times a second to feel fluid
+                for idx, section in enumerate(draft_chapters, 1):
+                    time.sleep(0.3)  # arbitrary delay
+                    num_units = len(section.units)
+                    total_units += num_units
+                    table.add_row(f"{idx}-{section.name}", str(len(section.units)))
+                    table.columns[1].footer = str(total_units)  # Update footer dynamically
 
-            # iterate over units
-            for jdx, draft_unit in enumerate(draft_chapter.units, 1):
-                try:
-                    unit = await get_unit(self.context, draft_unit.url)
-                except Exception as e:
-                    Logger.error(f"Error collecting unit data for '{draft_unit.title}': {str(e)}")
-                    Logger.warning("Skipping this unit and continuing with the next one...")
-                    continue
-                
-                file_name = f"{jdx}. {clean_string(unit.title, max_length=50)}"
+            for idx, draft_chapter in enumerate(draft_chapters, 1):
+                Logger.info(f"Creating directory: {draft_chapter.name}")
 
-                # download video
-                if unit.video:
-                    dst = CHAP_DIR / f"{file_name}.mp4"
-                    Logger.print(f"[{dst.name}]", "[DOWNLOADING-VIDEO]")
-                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                CHAP_DIR = DL_DIR / f"{idx}. {clean_string(draft_chapter.name, max_length=60)}"
+                CHAP_DIR.mkdir(parents=True, exist_ok=True)
 
-                    # download subtitles
-                    subs = unit.video.subtitles_url
-                    if subs:
-                        for sub in subs:
-                            lang = "_es" if "ES" in sub else "_en" if "EN" in sub else "_pt" if "PT" in sub else ""
+                # iterate over units
+                for jdx, draft_unit in enumerate(draft_chapter.units, 1):
+                    unit_id = urlparse(draft_unit.url).path
+                    
+                    # Check if unit was already completed
+                    if self.progress.should_skip_unit(course_id, unit_id):
+                        Logger.info(f"⏭️  Skipping unit (already completed): {draft_unit.title}")
+                        continue
+                    
+                    # Register unit start
+                    self.progress.start_unit(course_id, unit_id, draft_unit.title)
+                    
+                    try:
+                        unit = await get_unit(self.context, draft_unit.url)
+                    except Exception as e:
+                        error_msg = f"Error collecting unit data: {str(e)}"
+                        Logger.error(f"{error_msg} for '{draft_unit.title}'")
+                        Logger.warning("Skipping this unit and continuing with the next one...")
+                        self.progress.fail_unit(course_id, unit_id, error_msg)
+                        continue
+                    
+                    try:
+                        file_name = f"{jdx}. {clean_string(unit.title, max_length=50)}"
 
-                            dst = CHAP_DIR / f"{file_name}{lang}.vtt"
-                            Logger.print(f"[{dst.name}]", "[DOWNLOADING-SUBS]")
-                            await download(sub, dst, **kwargs)
+                        # download video
+                        if unit.video:
+                            dst = CHAP_DIR / f"{file_name}.mp4"
+                            Logger.print(f"[{dst.name}]", "[DOWNLOADING-VIDEO]")
+                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
 
-                    # download resources
-                    if unit.resources:
-                        # download summary
-                        summary = unit.resources.summary
-                        if summary:
-                            dst = CHAP_DIR / f"{file_name}_summary.html"
-                            Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
-                            # Add beautiful styling to summary
-                            styled_summary = f"""<!DOCTYPE html>
-                                <html lang="es">
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                    <title>{unit.title} - Resumen</title>
-                                    <style>
-                                        body {{
-                                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                                            line-height: 1.8;
-                                            max-width: 900px;
-                                            margin: 0 auto;
-                                            padding: 40px 20px;
-                                            background-color: #f5f5f5;
-                                            color: #2c3e50;
-                                        }}
-                                        .container {{
-                                            background-color: #ffffff;
-                                            padding: 40px;
-                                            border-radius: 8px;
-                                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                                        }}
-                                        h1, h2, h3, h4, h5, h6 {{
-                                            color: #1a1a1a;
-                                            margin-top: 1.5em;
-                                            margin-bottom: 0.5em;
-                                            font-weight: 600;
-                                        }}
-                                        h1 {{
-                                            border-bottom: 3px solid #3498db;
-                                            padding-bottom: 10px;
-                                            font-size: 2em;
-                                        }}
-                                        h2 {{
-                                            border-bottom: 2px solid #95a5a6;
-                                            padding-bottom: 8px;
-                                            font-size: 1.5em;
-                                        }}
-                                        p {{
-                                            margin-bottom: 1em;
-                                            color: #34495e;
-                                        }}
-                                        code {{
-                                            background-color: #ecf0f1;
-                                            padding: 2px 6px;
-                                            border-radius: 3px;
-                                            font-family: 'Courier New', monospace;
-                                            color: #e74c3c;
-                                            font-size: 0.9em;
-                                        }}
-                                        pre {{
-                                            background-color: #2c3e50;
-                                            color: #ecf0f1;
-                                            padding: 20px;
-                                            border-radius: 5px;
-                                            overflow-x: auto;
-                                            line-height: 1.5;
-                                        }}
-                                        pre code {{
-                                            background-color: transparent;
-                                            color: #ecf0f1;
-                                            padding: 0;
-                                        }}
-                                        ul, ol {{
-                                            margin-bottom: 1em;
-                                            padding-left: 30px;
-                                            color: #34495e;
-                                        }}
-                                        li {{
-                                            margin-bottom: 0.5em;
-                                        }}
-                                        blockquote {{
-                                            border-left: 4px solid #3498db;
-                                            padding-left: 20px;
-                                            margin: 20px 0;
-                                            color: #555;
-                                            font-style: italic;
-                                            background-color: #f8f9fa;
-                                            padding: 15px 20px;
-                                            border-radius: 0 4px 4px 0;
-                                        }}
-                                        a {{
-                                            color: #3498db;
-                                            text-decoration: none;
-                                            border-bottom: 1px solid transparent;
-                                            transition: border-bottom 0.3s;
-                                        }}
-                                        a:hover {{
-                                            border-bottom: 1px solid #3498db;
-                                        }}
-                                        img {{
-                                            max-width: 100%;
-                                            height: auto;
-                                            border-radius: 5px;
-                                            margin: 20px 0;
-                                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                                        }}
-                                        table {{
-                                            border-collapse: collapse;
-                                            width: 100%;
-                                            margin: 20px 0;
-                                        }}
-                                        th, td {{
-                                            border: 1px solid #ddd;
-                                            padding: 12px;
-                                            text-align: left;
-                                        }}
-                                        th {{
-                                            background-color: #34495e;
-                                            color: white;
-                                            font-weight: 600;
-                                        }}
-                                        tr:nth-child(even) {{
-                                            background-color: #f8f9fa;
-                                        }}
-                                        .header {{
-                                            text-align: center;
-                                            margin-bottom: 30px;
-                                        }}
-                                        .header h1 {{
-                                            border: none;
-                                            margin-bottom: 10px;
-                                        }}
-                                        .date {{
-                                            color: #7f8c8d;
-                                            font-size: 0.9em;
-                                        }}
-                                    </style>
-                                </head>
-                                <body>
-                                    <div class="container">
-                                        <div class="header">
-                                            <h1>{unit.title}</h1>
-                                            <p class="date">Resumen del curso</p>
+                            # download subtitles
+                            subs = unit.video.subtitles_url
+                            if subs:
+                                for sub in subs:
+                                    lang = "_es" if "ES" in sub else "_en" if "EN" in sub else "_pt" if "PT" in sub else ""
+
+                                    dst = CHAP_DIR / f"{file_name}{lang}.vtt"
+                                    Logger.print(f"[{dst.name}]", "[DOWNLOADING-SUBS]")
+                                    await download(sub, dst, **kwargs)
+
+                            # download resources
+                            if unit.resources:
+                                # download summary
+                                summary = unit.resources.summary
+                                if summary:
+                                    dst = CHAP_DIR / f"{file_name}_summary.html"
+                                    Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
+                                    # Add beautiful styling to summary
+                                    styled_summary = f"""<!DOCTYPE html>
+                                    <html lang="es">
+                                    <head>
+                                        <meta charset="UTF-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                        <title>{unit.title} - Resumen</title>
+                                        <style>
+                                            body {{
+                                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                                                line-height: 1.8;
+                                                max-width: 900px;
+                                                margin: 0 auto;
+                                                padding: 40px 20px;
+                                                background-color: #f5f5f5;
+                                                color: #2c3e50;
+                                            }}
+                                            .container {{
+                                                background-color: #ffffff;
+                                                padding: 40px;
+                                                border-radius: 8px;
+                                                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                                            }}
+                                            h1, h2, h3, h4, h5, h6 {{
+                                                color: #1a1a1a;
+                                                margin-top: 1.5em;
+                                                margin-bottom: 0.5em;
+                                                font-weight: 600;
+                                            }}
+                                            h1 {{
+                                                border-bottom: 3px solid #3498db;
+                                                padding-bottom: 10px;
+                                                font-size: 2em;
+                                            }}
+                                            h2 {{
+                                                border-bottom: 2px solid #95a5a6;
+                                                padding-bottom: 8px;
+                                                font-size: 1.5em;
+                                            }}
+                                            p {{
+                                                margin-bottom: 1em;
+                                                color: #34495e;
+                                            }}
+                                            code {{
+                                                background-color: #ecf0f1;
+                                                padding: 2px 6px;
+                                                border-radius: 3px;
+                                                font-family: 'Courier New', monospace;
+                                                color: #e74c3c;
+                                                font-size: 0.9em;
+                                            }}
+                                            pre {{
+                                                background-color: #2c3e50;
+                                                color: #ecf0f1;
+                                                padding: 20px;
+                                                border-radius: 5px;
+                                                overflow-x: auto;
+                                                line-height: 1.5;
+                                            }}
+                                            pre code {{
+                                                background-color: transparent;
+                                                color: #ecf0f1;
+                                                padding: 0;
+                                            }}
+                                            ul, ol {{
+                                                margin-bottom: 1em;
+                                                padding-left: 30px;
+                                                color: #34495e;
+                                            }}
+                                            li {{
+                                                margin-bottom: 0.5em;
+                                            }}
+                                            blockquote {{
+                                                border-left: 4px solid #3498db;
+                                                padding-left: 20px;
+                                                margin: 20px 0;
+                                                color: #555;
+                                                font-style: italic;
+                                                background-color: #f8f9fa;
+                                                padding: 15px 20px;
+                                                border-radius: 0 4px 4px 0;
+                                            }}
+                                            a {{
+                                                color: #3498db;
+                                                text-decoration: none;
+                                                border-bottom: 1px solid transparent;
+                                                transition: border-bottom 0.3s;
+                                            }}
+                                            a:hover {{
+                                                border-bottom: 1px solid #3498db;
+                                            }}
+                                            img {{
+                                                max-width: 100%;
+                                                height: auto;
+                                                border-radius: 5px;
+                                                margin: 20px 0;
+                                                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                                            }}
+                                            table {{
+                                                border-collapse: collapse;
+                                                width: 100%;
+                                                margin: 20px 0;
+                                            }}
+                                            th, td {{
+                                                border: 1px solid #ddd;
+                                                padding: 12px;
+                                                text-align: left;
+                                            }}
+                                            th {{
+                                                background-color: #34495e;
+                                                color: white;
+                                                font-weight: 600;
+                                            }}
+                                            tr:nth-child(even) {{
+                                                background-color: #f8f9fa;
+                                            }}
+                                            .header {{
+                                                text-align: center;
+                                                margin-bottom: 30px;
+                                            }}
+                                            .header h1 {{
+                                                border: none;
+                                                margin-bottom: 10px;
+                                            }}
+                                            .date {{
+                                                color: #7f8c8d;
+                                                font-size: 0.9em;
+                                            }}
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div class="container">
+                                            <div class="header">
+                                                <h1>{unit.title}</h1>
+                                                <p class="date">Resumen del curso</p>
+                                            </div>
+                                            {summary}
                                         </div>
-                                        {summary}
-                                    </div>
-                                </body>
-                                </html>"""
-                            with open(dst, 'w', encoding='utf-8') as f:
-                                f.write(styled_summary)
+                                    </body>
+                                    </html>"""
+                                    with open(dst, 'w', encoding='utf-8') as f:
+                                        f.write(styled_summary)
+                                
+                                # download files
+                                files = unit.resources.files_url
+                                if files:
+                                    for archive in files:
+                                        file_name_archive = unquote(os.path.basename(archive))
+                                        # Separate name and extension before cleaning
+                                        name_part = os.path.splitext(file_name_archive)[0]
+                                        ext_part = os.path.splitext(file_name_archive)[1]
+                                        # Clean only the name, not the extension
+                                        name_part = clean_string(name_part, max_length=50)
+                                        file_name_archive = f"{name_part}{ext_part}"
+                                        dst = CHAP_DIR / f"{jdx}. {file_name_archive}"
+                                        Logger.print(f"[{dst.name}]", "[DOWNLOADING-FILES]")
+                                        await download(archive, dst)
+
+                                # download readings
+                                readings = unit.resources.readings_url
+                                if readings:
+                                    dst = CHAP_DIR / f"{jdx}. Lecturas recomendadas.txt"
+                                    Logger.print(f"[{dst.name}]", "[SAVING-READINGS]")
+                                    with open(dst, 'w', encoding='utf-8') as f:
+                                        for lecture in readings:
+                                            f.write(lecture + "\n")
+
+                        # download lecture
+                        if unit.type == TypeUnit.LECTURE:
+                            # Ensure filename isn't too long
+                            safe_file_name = clean_string(unit.title, max_length=50)
+                            dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
+                            Logger.print(f"[{dst.name}]", "[DOWNLOADING-LECTURE]")
+                            await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
+
+                        # download quiz
+                        if unit.type == TypeUnit.QUIZ:
+                            # Ensure filename isn't too long
+                            safe_file_name = clean_string(unit.title, max_length=50)
+                            dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
+                            Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
+                            await self.save_page(unit.url, path=dst, wait_for_images=False, **kwargs)
                         
-                        # download files
-                        files = unit.resources.files_url
-                        if files:
-                            for archive in files:
-                                file_name_archive = unquote(os.path.basename(archive))
-                                # Separate name and extension before cleaning
-                                name_part = os.path.splitext(file_name_archive)[0]
-                                ext_part = os.path.splitext(file_name_archive)[1]
-                                # Clean only the name, not the extension
-                                name_part = clean_string(name_part, max_length=50)
-                                file_name_archive = f"{name_part}{ext_part}"
-                                dst = CHAP_DIR / f"{jdx}. {file_name_archive}"
-                                Logger.print(f"[{dst.name}]", "[DOWNLOADING-FILES]")
-                                await download(archive, dst)
+                        # Mark unit as completed
+                        self.progress.complete_unit(course_id, unit_id)
+                        
+                    except Exception as e:
+                        error_msg = f"Error downloading unit: {str(e)}"
+                        Logger.error(f"{error_msg} for '{unit.title}'")
+                        self.progress.fail_unit(course_id, unit_id, error_msg)
+                        # Continue with next unit instead of stopping
 
-                        # download readings
-                        readings = unit.resources.readings_url
-                        if readings:
-                            dst = CHAP_DIR / f"{jdx}. Lecturas recomendadas.txt"
-                            Logger.print(f"[{dst.name}]", "[SAVING-READINGS]")
-                            with open(dst, 'w', encoding='utf-8') as f:
-                                for lecture in readings:
-                                    f.write(lecture + "\n")
-
-                # download lecture
-                if unit.type == TypeUnit.LECTURE:
-                    # Ensure filename isn't too long
-                    safe_file_name = clean_string(unit.title, max_length=50)
-                    dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
-                    Logger.print(f"[{dst.name}]", "[DOWNLOADING-LECTURE]")
-                    await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
-
-                # download quiz
-                if unit.type == TypeUnit.QUIZ:
-                    # Ensure filename isn't too long
-                    safe_file_name = clean_string(unit.title, max_length=50)
-                    dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
-                    Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
-                    await self.save_page(unit.url, path=dst, wait_for_images=False, **kwargs)
-
-        print("=" * 100)
-
+            # Mark course as completed
+            self.progress.complete_course(course_id)
+            print("=" * 100)
+            
+        except Exception as e:
+            error_msg = f"Error downloading course: {str(e)}"
+            Logger.error(error_msg)
+            self.progress.fail_course(course_id, error_msg)
+            raise
+        finally:
+            await page.close()
     @try_except_request
     async def save_page(
         self,

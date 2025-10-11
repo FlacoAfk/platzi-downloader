@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## v0.8.0 (2025-10-10) - Unreleased
+
+### Features
+
+* **feat: add progress tracking and checkpoint system** 
+  - Implements automatic checkpoint saving for download progress
+  - Allows resuming downloads from where they left off after interruptions
+  - Tracks completion status of courses, learning paths, and individual units
+  - Generates detailed progress reports with statistics and error logs
+  - Creates `download_progress.json` for checkpoint data
+  - Creates `download_report.txt` with final summary
+
+* **feat: add minimized browser window support**
+  - Browser now opens minimized by default using `--start-minimized` flag
+  - Allows users to continue working without interference
+  - No impact on download functionality
+
+* **feat: add smart skip logic for completed items**
+  - Automatically skips already downloaded courses and units
+  - Prevents redundant downloads and saves bandwidth
+  - Shows visual indicators (⏭️) for skipped items
+
+* **feat: add comprehensive error tracking**
+  - Records all errors with timestamps and context
+  - Continues downloading after errors instead of stopping
+  - Provides detailed error information in reports
+
+### Documentation
+
+* docs: add PROGRESS_TRACKING.md with complete documentation
+* docs: add IMPLEMENTATION_NOTES.md with technical details
+* docs: add view_progress.py utility script for checking progress
+* docs: update README.md with new features section
+
+### Chore
+
+* chore: add urlparse import to async_api.py
+* chore: integrate ProgressTracker into AsyncPlatzi class
+
+---
+
 ## v0.7.0 (2025-09-24)
 
 ### Chore
