@@ -3,22 +3,36 @@
 ====================================================================================================
 
 Session started: 2025-10-10T14:09:52.378215
-Last updated: 2025-10-10T22:23:42.651211
+Last updated: 2025-10-12T17:22:35.821736
 
 📈 STATISTICS:
-  Courses: 17/31 completed, 0 failed
-  Units: 754/788 completed, 22 failed
+  Courses: 126/149 completed, 0 failed
+  Units: 3446/3517 completed, 51 failed
 
 🗂️  LEARNING PATHS:
-  ✅ Fundamentos del Desarrollo Web Profesional: 1/10 courses completed
-  🔄 Desarrollo Frontend con Angular: 1/10 courses completed
+  ✅ Fundamentos del Desarrollo Web Profesional: 0/10 courses completed
+  ✅ Desarrollo Frontend con Angular: 0/10 courses completed
+  ✅ Desarrollo Frontend con React.js: 0/8 courses completed
+  ✅ Desarrollo Backend con Node.js: 0/22 courses completed
+  ✅ Desarrollo Backend con Python: 0/6 courses completed
+  ✅ Desarrollo Backend con Java: 0/7 courses completed
+  ✅ Desarrollo Backend con PHP: 0/17 courses completed
+  ✅ Desarrollo Backend con Ruby: 0/4 courses completed
+  ✅ Bases de Datos para Web: 0/11 courses completed
+  ✅ Seguridad Web & API: 0/12 courses completed
+  🔄 Testing Automatizado y QA para Web: 2/25 courses completed
 
 ❌ ERRORS:
-  - [UNIT] Creación y Uso de Directivas en Angular para Manipular el DOM: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - [UNIT] Reactividad y Manejo de Estado en Angular con NGRX: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - [UNIT] Implementación de Linter en Angular para Buenas Prácticas de Código: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - [UNIT] Componentes y Servicios en Aplicaciones Web: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - [UNIT] Formularios en Angular: Creación y Manejo Efectivo: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - [UNIT] Formularios Reactivos en Angular: Creación y Optimización: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - [UNIT] Pruebas de Componentes con Data Test ID y Selectores CSS: Error downloading unit: Error downloading ts m3u8
+  - [UNIT] Pruebas de Espionaje en Componentes sin Dependencias: Error downloading unit: Error downloading m3u8
+  - [UNIT] Unit Testing para Componentes con Inyección de Dependencias: Error downloading unit: Error downloading m3u8
+  - [UNIT] Mocking y pruebas unitarias en Angular: Inyección de dependencias: Error downloading unit: Error downloading m3u8
+  - [UNIT] Pruebas Complejas en Angular: Testing de Componentes y Servicios: Error downloading unit: Error downloading m3u8
+  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
+  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
+  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
+  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
+  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
+  ... and 25 more errors
 
 ====================================================================================================
