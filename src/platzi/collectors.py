@@ -259,14 +259,28 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
         "h1",
     ]
     
-    # Selector para detectar página de error 500
-    ERROR_500_SELECTOR = 'h1:has-text("Error 500")'
-    EXCEPTION = Exception("Could not collect unit data")
+    # Selectores para detectar página de error 500 REAL del servidor
+    # Muy específicos para evitar falsos positivos con títulos de clases
+    # que mencionen "Error 500" como parte del contenido educativo
+    ERROR_500_SELECTORS = [
+        # Buscar solo h1 que sea EXACTAMENTE "Error 500" sin texto adicional
+        'main h1:text-is("Error 500")',
+        'body > h1:text-is("Error 500")',
+        # O un h1 que tenga "Error 500" pero SIN otros elementos dentro (como links)
+        'main > h1:has-text("Error 500"):not(:has(a))',
+        'body > div > h1:has-text("Error 500"):not(:has(a))',
+        # Div de error con clase específica de error de Platzi
+        'div[class*="error-page"] h1',
+        'div[class*="ErrorPage"] h1',
+    ]
     
-    # Debug mode - Set to True to see detailed logs during video detection
-    DEBUG_MODE = False
+    # Selector para detectar reproductor de video sin fuente
+    VIDEO_ERROR_SELECTOR = 'text=/no compatible source was found/i'
+    
+    EXCEPTION = Exception("Could not collect unit data")
 
-    # --- NEW CONSTANTS ----
+    # Debug mode - Set to True to see detailed logs during video detection
+    DEBUG_MODE = False    # --- NEW CONSTANTS ----
     SECTION_FILES = '//h4[normalize-space(text())="Archivos de la clase"]'
     SECTION_READING = '//h4[normalize-space(text())="Lecturas recomendadas"]'
     
@@ -320,8 +334,17 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                 # Esperar un poco para que la página cargue
                 await asyncio.sleep(5)
                 
-                # Verificar si es una página de error 500
-                error_500_exists = await page.locator(ERROR_500_SELECTOR).count() > 0
+                # Verificar si es una página de error 500 con múltiples selectores
+                error_500_exists = False
+                for selector in ERROR_500_SELECTORS:
+                    try:
+                        if await page.locator(selector).count() > 0:
+                            error_500_exists = True
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] Error 500 detected with selector: {selector}")
+                            break
+                    except Exception:
+                        continue
                 
                 if error_500_exists:
                     if attempt < max_retries - 1:
@@ -335,15 +358,24 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                 break
                 
             except Exception as e:
-                if "net::ERR_CONNECTION_CLOSED" in str(e) or "ERR_CONNECTION_RESET" in str(e):
+                error_msg = str(e)
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Exception during page load: {error_msg}")
+                
+                if "net::ERR_CONNECTION_CLOSED" in error_msg or "ERR_CONNECTION_RESET" in error_msg:
                     if attempt < max_retries - 1:
                         if DEBUG_MODE:
-                            print(f"[DEBUG] Connection error, retrying... ({str(e)})")
+                            print(f"[DEBUG] Connection error, retrying... ({error_msg[:100]})")
                         continue
                     else:
-                        raise Exception(f"Connection failed after {max_retries} attempts: {str(e)}")
+                        raise Exception(f"Connection failed after {max_retries} attempts: {error_msg}")
+                elif "Server returned Error 500" in error_msg:
+                    # Este error ya fue manejado arriba, re-lanzarlo
+                    raise
                 else:
                     # Otro tipo de error, no reintentar
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Non-retryable error: {error_msg[:200]}")
                     raise
         
         if DEBUG_MODE:
@@ -391,13 +423,22 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
             if DEBUG_MODE:
                 print(f"[DEBUG] Video player found, checking for m3u8...")
             
+            # Check if video has an error (no compatible source)
+            video_error = False
+            try:
+                video_error = await page.locator(VIDEO_ERROR_SELECTOR).count() > 0
+                if video_error and DEBUG_MODE:
+                    print(f"[DEBUG] ⚠️  Video player has no compatible source")
+            except Exception:
+                pass
+            
             # VideoPlayer found, wait for video content to load
             await asyncio.sleep(3)
             content = await page.content()
             
-            # Try to find m3u8 URL with retries
+            # Try to find m3u8 URL with retries (skip if video has error)
             m3u8_found = False
-            max_retries = 5
+            max_retries = 5 if not video_error else 1  # Reduce retries if video has error
             
             for attempt in range(max_retries):
                 try:
@@ -456,7 +497,10 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                 unit_type = TypeUnit.LECTURE
                 video = None
                 if DEBUG_MODE:
-                    print(f"[DEBUG] ❌ No m3u8 found, marking as LECTURE")
+                    if video_error:
+                        print(f"[DEBUG] ⚠️  Video not available (no compatible source), treating as LECTURE")
+                    else:
+                        print(f"[DEBUG] ❌ No m3u8 found, marking as LECTURE")
         else:
             # No VideoPlayer element, it's a lecture
             content = await page.content()
