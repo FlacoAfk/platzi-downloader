@@ -244,7 +244,7 @@ async def get_draft_chapters(page: Page) -> list[Chapter]:
 
 
 @Cache.cache_async
-async def get_unit(context: BrowserContext, url: str) -> Unit:
+async def get_unit(context: BrowserContext, url: str, browser_type: str = "firefox") -> Unit:
     # Multiple selectors for video player - Platzi may use different class names
     VIDEO_PLAYER_SELECTORS = [
         ".VideoPlayer",
@@ -432,66 +432,161 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
             except Exception:
                 pass
             
+            # Set up network request interceptor to capture m3u8/mpd URLs
+            captured_m3u8_url = None
+            captured_mpd_url = None
+            
+            def capture_request(request):
+                nonlocal captured_m3u8_url, captured_mpd_url
+                url = request.url
+                # Capture both HLS (.m3u8) and DASH (.mpd) formats separately
+                if '.m3u8' in url and not captured_m3u8_url:
+                    captured_m3u8_url = url
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] 🎯 Captured HLS (.m3u8) from network: {url[:80]}...")
+                elif '.mpd' in url and not captured_mpd_url:
+                    captured_mpd_url = url
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] 🎯 Captured DASH (.mpd) from network: {url[:80]}...")
+            
+            # Listen for network requests
+            page.on("request", capture_request)
+            
+            # Reload the page to capture network requests
+            if DEBUG_MODE:
+                print(f"[DEBUG] Reloading page to capture network requests...")
+            
+            try:
+                await page.reload(wait_until="networkidle", timeout=30000)
+            except Exception:
+                # If networkidle fails, use domcontentloaded
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+            
             # VideoPlayer found, wait for video content to load
             await asyncio.sleep(3)
             content = await page.content()
             
+            # Remove the listener
+            try:
+                page.remove_listener("request", capture_request)
+            except Exception:
+                pass
+            
             # Try to find m3u8 URL with retries (skip if video has error)
             m3u8_found = False
-            max_retries = 5 if not video_error else 1  # Reduce retries if video has error
+            m3u8_url = None
             
-            for attempt in range(max_retries):
-                try:
+            # FIRST: Check if we captured URLs from network requests
+            # For Chromium: Prioritize m3u8 over mpd to avoid 403 errors
+            # For Firefox: Use whichever is available (both work fine)
+            video_url = None
+            
+            if browser_type == "chromium":
+                # Chromium: ONLY use m3u8, reject mpd-only videos
+                if captured_m3u8_url:
+                    video_url = captured_m3u8_url
                     if DEBUG_MODE:
-                        print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} to find m3u8...")
-                    
-                    m3u8_url = get_m3u8_url(content)
-                    
+                        print(f"[DEBUG] ✅ Using m3u8 (compatible with Chromium)")
+                    # Set mpd as fallback if available (won't be used due to 403)
+                    # Keeping it for logging purposes only
+                elif captured_mpd_url:
+                    # DON'T use mpd as primary URL for Chromium
+                    # It will fail with 403 Forbidden
                     if DEBUG_MODE:
-                        print(f"[DEBUG] ✅ m3u8 found: {m3u8_url[:80]}...")
-                    
-                    unit_type = TypeUnit.VIDEO
-                    video = Video(
-                        url=m3u8_url,
-                        subtitles_url=get_subtitles_url(content),
-                    )
-                    m3u8_found = True
-                    break
-                except Exception as e:
+                        print(f"[DEBUG] ⚠️  Only DASH (.mpd) available - incompatible with Chromium")
+                        print(f"[DEBUG] This video will be skipped to avoid 403 error")
+                    # Don't set video_url - let it remain None
+            else:
+                # Firefox: Use whichever is available (prefer m3u8 but mpd also works)
+                if captured_m3u8_url:
+                    video_url = captured_m3u8_url
                     if DEBUG_MODE:
-                        print(f"[DEBUG] Attempt {attempt + 1} failed: {str(e)[:80]}")
-                    
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(2 + attempt)
-                        content = await page.content()
-                    else:
-                        # Last attempt - check for video indicators
-                        try:
-                            has_video_controls = await page.locator('.vjs-control-bar, [data-vjs-player]').count() > 0
-                            if DEBUG_MODE:
-                                print(f"[DEBUG] Video controls detected: {has_video_controls}")
-                            
-                            if has_video_controls:
+                        print(f"[DEBUG] ✅ Using m3u8 from network")
+                elif captured_mpd_url:
+                    video_url = captured_mpd_url
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] ✅ Using mpd from network")
+            
+            if video_url:
+                m3u8_url = video_url
+                unit_type = TypeUnit.VIDEO
+                
+                # For Chromium: Only set fallback if we have m3u8 as primary
+                # (never use mpd as primary for Chromium)
+                fallback = None
+                if browser_type == "chromium":
+                    # If using m3u8 (preferred), don't set mpd as fallback
+                    # because mpd will fail with 403 anyway
+                    pass
+                
+                video = Video(
+                    url=m3u8_url,
+                    fallback_url=fallback,
+                    subtitles_url=get_subtitles_url(content),
+                )
+                m3u8_found = True
+            elif browser_type == "chromium" and captured_mpd_url and not captured_m3u8_url:
+                # Chromium with only DASH available - treat as non-video unit
+                if DEBUG_MODE:
+                    print(f"[DEBUG] ❌ Video incompatible with Chromium (DASH only)")
+                # Don't create video object - will be treated as LECTURE
+            
+            # SECOND: If not captured, try finding in HTML content
+            if not m3u8_found:
+                max_retries = 5 if not video_error else 1  # Reduce retries if video has error
+                
+                for attempt in range(max_retries):
+                    try:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} to find m3u8 in HTML...")
+                        
+                        m3u8_url = get_m3u8_url(content)
+                        
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] ✅ m3u8 found: {m3u8_url[:80]}...")
+                        
+                        unit_type = TypeUnit.VIDEO
+                        video = Video(
+                            url=m3u8_url,
+                            subtitles_url=get_subtitles_url(content),
+                        )
+                        m3u8_found = True
+                        break
+                    except Exception as e:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Attempt {attempt + 1} failed: {str(e)[:80]}")
+                        
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2 + attempt)
+                            content = await page.content()
+                        else:
+                            # Last attempt - check for video indicators
+                            try:
+                                has_video_controls = await page.locator('.vjs-control-bar, [data-vjs-player]').count() > 0
                                 if DEBUG_MODE:
-                                    print(f"[DEBUG] Waiting extra time for video...")
-                                await asyncio.sleep(3)
-                                content = await page.content()
-                                try:
-                                    m3u8_url = get_m3u8_url(content)
-                                    unit_type = TypeUnit.VIDEO
-                                    video = Video(
-                                        url=m3u8_url,
-                                        subtitles_url=get_subtitles_url(content),
-                                    )
-                                    m3u8_found = True
+                                    print(f"[DEBUG] Video controls detected: {has_video_controls}")
+                                
+                                if has_video_controls:
                                     if DEBUG_MODE:
-                                        print(f"[DEBUG] ✅ m3u8 found after extra wait")
-                                except Exception:
-                                    if DEBUG_MODE:
-                                        print(f"[DEBUG] ❌ Still no m3u8 found")
-                                    pass
-                        except Exception:
-                            pass
+                                        print(f"[DEBUG] Waiting extra time for video...")
+                                    await asyncio.sleep(3)
+                                    content = await page.content()
+                                    try:
+                                        m3u8_url = get_m3u8_url(content)
+                                        unit_type = TypeUnit.VIDEO
+                                        video = Video(
+                                            url=m3u8_url,
+                                            subtitles_url=get_subtitles_url(content),
+                                        )
+                                        m3u8_found = True
+                                        if DEBUG_MODE:
+                                            print(f"[DEBUG] ✅ m3u8 found after extra wait")
+                                    except Exception:
+                                        if DEBUG_MODE:
+                                            print(f"[DEBUG] ❌ Still no m3u8 found")
+                                        pass
+                            except Exception:
+                                pass
             
             if not m3u8_found:
                 unit_type = TypeUnit.LECTURE
@@ -499,6 +594,9 @@ async def get_unit(context: BrowserContext, url: str) -> Unit:
                 if DEBUG_MODE:
                     if video_error:
                         print(f"[DEBUG] ⚠️  Video not available (no compatible source), treating as LECTURE")
+                    elif browser_type == "chromium" and captured_mpd_url:
+                        print(f"[DEBUG] ⚠️  Video only available in DASH (.mpd), incompatible with Chromium")
+                        print(f"[DEBUG] Treating as LECTURE to avoid 403 error")
                     else:
                         print(f"[DEBUG] ❌ No m3u8 found, marking as LECTURE")
         else:

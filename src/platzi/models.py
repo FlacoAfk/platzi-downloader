@@ -28,6 +28,7 @@ class TypeUnit(str, Enum):
 class Video(BaseModel):
     id: int | None = None
     url: str
+    fallback_url: str | None = None  # Alternative URL for fallback (e.g., DASH when m3u8 is primary)
     subtitles_url: list[str] | None = None
 
 

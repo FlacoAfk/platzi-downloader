@@ -2,7 +2,6 @@ import asyncio
 import functools
 import json
 import os
-import platform
 import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -21,6 +20,7 @@ from .collectors import (
     get_unit,
 )
 from .constants import HEADERS, LOGIN_DETAILS_URL, LOGIN_URL, SESSION_FILE
+from .dash import dash_dl
 from .helpers import read_json, write_json
 from .logger import Logger
 from .m3u8 import m3u8_dl
@@ -64,54 +64,17 @@ def try_except_request(func):
     return wrapper
 
 
-def _minimize_browser_window():
-    """Minimize the browser window using OS-specific commands."""
-    try:
-        if platform.system() == "Windows":
-            import ctypes
-            import time as sync_time
-            
-            # Wait a bit for window to be created
-            sync_time.sleep(1)
-            
-            # Windows API constants
-            SW_MINIMIZE = 6
-            
-            # List to store window handles
-            windows_found = []
-            
-            # Find window by title containing "Chrome" or "Chromium"
-            def enum_windows_callback(hwnd, lParam):
-                if ctypes.windll.user32.IsWindowVisible(hwnd):
-                    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-                    if length > 0:
-                        buffer = ctypes.create_unicode_buffer(length + 1)
-                        ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
-                        title = buffer.value
-                        if 'Chrome' in title or 'Chromium' in title or 'Platzi' in title:
-                            windows_found.append(hwnd)
-                return True
-            
-            # Define callback type
-            EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
-            
-            # Enumerate all windows
-            ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), 0)
-            
-            # Minimize all Chrome/Chromium windows
-            for hwnd in windows_found:
-                ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
-                
-    except Exception as e:
-        # If minimization fails, continue anyway (not critical)
-        pass
-
-
 
 class AsyncPlatzi:
-    def __init__(self, headless=False):
+    def __init__(self, headless=True, browser_type="firefox"):
         self.loggedin = False
-        self.headless = headless
+        self.browser_type = browser_type.lower()  # 'firefox' or 'chromium'
+        # Firefox: headless=True (funciona perfecto)
+        # Chromium: headless=False (evita 403 Forbidden, se minimiza)
+        if self.browser_type == "chromium":
+            self.headless = False  # Chromium en ventana visible para evitar detección
+        else:
+            self.headless = headless  # Firefox usa headless
         self.user = None
         self.progress = ProgressTracker()
 
@@ -119,43 +82,48 @@ class AsyncPlatzi:
         from .constants import USER_AGENT
         
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--window-position=-2400,-2400',  # Position off-screen
-            ]
-        )
         
-        # Desktop configuration
+        # Launch browser based on browser_type
+        if self.browser_type == "chromium":
+            Logger.info("🌐 Using Chromium browser (visible, minimized)")
+            Logger.warning("⚠️  IMPORTANT: Chromium only supports HLS videos (.m3u8)")
+            Logger.warning("⚠️  Videos only available in DASH (.mpd) will be SKIPPED with 403 error")
+            Logger.info("✅ Recommended: Use Firefox for full compatibility: --browser firefox")
+            self._browser = await self._playwright.chromium.launch(
+                headless=False,  # Ventana visible para evitar detección 403
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--window-position=-2000,-2000',  # Mover fuera de pantalla
+                    '--window-size=1,1',  # Ventana mínima
+                ]
+            )
+        else:  # firefox (default)
+            Logger.info("🦊 Using Firefox browser (headless mode)")
+            self._browser = await self._playwright.firefox.launch(
+                headless=True,  # Firefox funciona perfecto en headless
+                firefox_user_prefs={
+                    'network.proxy.type': 0,
+                    'network.dns.disablePrefetch': True,
+                    'privacy.trackingprotection.enabled': False,
+                }
+            )
+        
+        # Create browser context with optimized settings
         self._context = await self._browser.new_context(
-            java_script_enabled=True,
             user_agent=USER_AGENT,
             viewport={'width': 1920, 'height': 1080},
-            device_scale_factor=1,
-            is_mobile=False,
-            has_touch=False,
             locale='es-ES',
             timezone_id='America/Mexico_City',
+            bypass_csp=True,
+            ignore_https_errors=True,
         )
         
-        # Add anti-detection script to all pages
+        # Add anti-detection script
         await self._context.add_init_script("""
-            // Override webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-            
-            // Override chrome property
-            window.navigator.chrome = {
-                runtime: {},
-            };
-            
-            // Override permissions
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.navigator.chrome = {runtime: {}};
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
@@ -180,12 +148,6 @@ class AsyncPlatzi:
             pass
 
         await self._set_profile()
-        
-        # Minimize browser window if not in headless mode
-        if not self.headless:
-            await asyncio.sleep(0.5)  # Give browser time to fully open
-            _minimize_browser_window()
-
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -200,7 +162,11 @@ class AsyncPlatzi:
 
     @property
     async def page(self) -> Page:
-        return await self._context.new_page()
+        new_page = await self._context.new_page()
+        # Minimize Chromium pages immediately after creation
+        if self.browser_type == "chromium":
+            await self._minimize_page(new_page)
+        return new_page
 
     @property
     def context(self) -> BrowserContext:
@@ -217,6 +183,29 @@ class AsyncPlatzi:
         if self.user.is_authenticated:
             self.loggedin = True
             Logger.info(f"Hi, {self.user.username}!\n")
+
+    async def _minimize_page(self, page: Page) -> None:
+        """Minimize Chromium page on Windows to avoid being a nuisance."""
+        try:
+            import platform
+            if platform.system() == "Windows":
+                try:
+                    import ctypes
+                    import time
+                    
+                    # Small delay to let window appear
+                    time.sleep(0.3)
+                    
+                    # Get foreground window (most recently created)
+                    hwnd = ctypes.windll.user32.GetForegroundWindow()
+                    if hwnd:
+                        # SW_MINIMIZE = 6, minimize to taskbar
+                        SW_MINIMIZE = 6
+                        ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     @try_except_request
     async def login(self) -> None:
@@ -402,11 +391,23 @@ class AsyncPlatzi:
                         Logger.info(f"⏭️  Skipping unit (already completed): {draft_unit.title}")
                         continue
                     
-                    # Register unit start
+                    # Check if unit exists in checkpoint with special status
+                    existing_unit = None
+                    if course_id in self.progress.data["courses"]:
+                        existing_unit = self.progress.data["courses"][course_id].get("units", {}).get(unit_id)
+                    
+                    if existing_unit:
+                        if existing_unit["status"] == "pending":
+                            Logger.info(f"🔄 Retrying pending unit: {draft_unit.title}")
+                        elif existing_unit["status"] == "failed":
+                            Logger.warning(f"⚠️  Retrying previously failed unit: {draft_unit.title}")
+                            Logger.warning(f"    Previous error: {existing_unit.get('error', 'Unknown')}")
+                    
+                    # Register unit start (or restart)
                     self.progress.start_unit(course_id, unit_id, draft_unit.title)
                     
                     try:
-                        unit = await get_unit(self.context, draft_unit.url)
+                        unit = await get_unit(self.context, draft_unit.url, browser_type=self.browser_type)
                     except Exception as e:
                         error_msg = f"Error collecting unit data: {str(e)}"
                         Logger.error(f"{error_msg} for '{draft_unit.title}'")
@@ -421,7 +422,52 @@ class AsyncPlatzi:
                         if unit.video:
                             dst = CHAP_DIR / f"{file_name}.mp4"
                             Logger.print(f"[{dst.name}]", "[DOWNLOADING-VIDEO]")
-                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                            
+                            # For Chromium: Try primary URL (m3u8 preferred), fallback to DASH if needed
+                            # For Firefox: Both formats work fine, no fallback needed
+                            video_downloaded = False
+                            
+                            # Special handling for Chromium
+                            if self.browser_type == "chromium":
+                                # Check if primary URL is DASH without m3u8 alternative
+                                if '.mpd' in unit.video.url and not unit.video.fallback_url:
+                                    # Chromium + DASH only = guaranteed 403 error
+                                    error_msg = "Video only available in DASH format (.mpd) which is incompatible with Chromium (403 Forbidden)"
+                                    Logger.error(f"❌ {error_msg}")
+                                    Logger.error(f"💡 Solution: Use Firefox instead: platzi download {url} --browser firefox")
+                                    raise Exception(error_msg)
+                                
+                                # If we have fallback, try primary first
+                                if unit.video.fallback_url:
+                                    try:
+                                        if '.mpd' in unit.video.url:
+                                            Logger.warning(f"⚠️  Downloading DASH (.mpd) with Chromium (may fail)")
+                                            await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                        else:
+                                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                        video_downloaded = True
+                                        Logger.info(f"✅ Video downloaded successfully using primary URL")
+                                    except Exception as primary_error:
+                                        Logger.warning(f"⚠️  Primary URL failed: {str(primary_error)[:100]}")
+                                        Logger.info(f"🔄 Trying fallback URL (DASH)...")
+                                        try:
+                                            await dash_dl(unit.video.fallback_url, dst, headers=HEADERS, **kwargs)
+                                            video_downloaded = True
+                                            Logger.info(f"✅ Video downloaded successfully using fallback URL")
+                                        except Exception as fallback_error:
+                                            Logger.error(f"❌ Fallback URL also failed: {str(fallback_error)[:100]}")
+                                            raise Exception(f"Both primary and fallback download failed. Primary: {str(primary_error)[:100]}, Fallback: {str(fallback_error)[:100]}")
+                                else:
+                                    # Chromium without fallback but has m3u8
+                                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                    video_downloaded = True
+                            else:
+                                # Firefox: Both formats work fine
+                                if '.mpd' in unit.video.url:
+                                    await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                else:
+                                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                video_downloaded = True
 
                             # download subtitles
                             subs = unit.video.subtitles_url
@@ -765,24 +811,56 @@ class AsyncPlatzi:
                 }
             """)
             
-            client = await page.context.new_cdp_session(page)
-            response = await client.send("Page.captureSnapshot", {"format": "mhtml"})
-            async with aiofiles.open(path, "w", encoding="utf-8", newline="\n") as file:
-                await file.write(response["data"])
-            
-            if wait_for_images:
-                Logger.info(f"Page saved successfully with all images: {path.name}")
+            # Use different save methods depending on browser type
+            if self.browser_type == "chromium":
+                # Chromium supports CDP and MHTML
+                try:
+                    client = await page.context.new_cdp_session(page)
+                    response = await client.send("Page.captureSnapshot", {"format": "mhtml"})
+                    async with aiofiles.open(path, "w", encoding="utf-8", newline="\n") as file:
+                        await file.write(response["data"])
+                    
+                    if wait_for_images:
+                        Logger.info(f"Page saved successfully with all images (MHTML): {path.name}")
+                    else:
+                        Logger.info(f"Page saved successfully (MHTML): {path.name}")
+                except Exception as cdp_error:
+                    Logger.warning(f"CDP/MHTML failed, falling back to HTML: {str(cdp_error)}")
+                    # Fallback to HTML
+                    content = await page.content()
+                    # Change extension to .html if it was .mhtml
+                    if path.suffix.lower() == '.mhtml':
+                        path = path.with_suffix('.html')
+                    async with aiofiles.open(path, "w", encoding="utf-8") as file:
+                        await file.write(content)
+                    Logger.info(f"Page saved as HTML: {path.name}")
             else:
-                Logger.info(f"Page saved successfully: {path.name}")
+                # Firefox doesn't support CDP/MHTML, save as HTML
+                content = await page.content()
+                # Change extension to .html if it was .mhtml
+                if path.suffix.lower() == '.mhtml':
+                    path = path.with_suffix('.html')
+                async with aiofiles.open(path, "w", encoding="utf-8") as file:
+                    await file.write(content)
+                
+                if wait_for_images:
+                    Logger.info(f"Page saved successfully with all images (HTML): {path.name}")
+                else:
+                    Logger.info(f"Page saved successfully (HTML): {path.name}")
+                    
         except Exception as e:
-            Logger.error(f"Error saving page as mhtml: {str(e)}")
+            Logger.error(f"Error saving page: {str(e)}")
             # Try alternative method: save as HTML
             try:
                 content = await page.content()
+                # Change extension to .html if it was .mhtml
+                if path.suffix.lower() == '.mhtml':
+                    path = path.with_suffix('.html')
                 async with aiofiles.open(path, "w", encoding="utf-8") as file:
                     await file.write(content)
+                Logger.info(f"Page saved as HTML (fallback): {path.name}")
             except Exception:
-                raise Exception("Error saving page as mhtml")
+                raise Exception(f"Error saving page: {str(e)}")
 
         if isinstance(src, str):
             await page.close()

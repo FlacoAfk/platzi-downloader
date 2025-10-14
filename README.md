@@ -12,7 +12,7 @@ Es una herramienta de línea de comandos para descargar cursos directamente desd
 
 ## ✨ Características Principales
 
-- 📥 **Descarga completa de cursos**: Videos, lecturas, quizzes, recursos y más
+- 📥 **Descarga completa de cursos**: Videos (HLS/DASH), lecturas, quizzes, recursos y más
 - 🎯 **Rutas de aprendizaje**: Descarga rutas completas con todos sus cursos organizados
 - 🔄 **Reanudación automática**: Si se interrumpe la descarga, continúa desde donde quedó
 - 📊 **Seguimiento de progreso**: Control completo de qué se descargó y qué falló
@@ -20,7 +20,10 @@ Es una herramienta de línea de comandos para descargar cursos directamente desd
 - 🔁 **Sistema de reintentos**: Hasta 3 intentos automáticos por clase con errores de conexión
 - ⚡ **Descarga por lotes**: Descarga múltiples cursos desde un archivo de texto
 - 🎨 **Resúmenes con estilo**: Los resúmenes se guardan con formato HTML profesional
-- �️ **Herramientas de gestión**: Scripts para ver estadísticas y reintentar clases fallidas
+- 🛠️ **Herramientas de gestión**: Scripts para ver estadísticas y reintentar clases fallidas
+- 🦊 **Firefox/Chromium**: Soporte para ambos navegadores en modo headless
+- 🎥 **Detección mejorada**: Intercepta videos HLS (.m3u8) y DASH (.mpd) desde requests de red
+- 🧹 **Limpieza de tracking**: Elimina entradas de archivos borrados manualmente
 
 ![GitHub repo size](https://img.shields.io/github/repo-size/ivansaul/platzi-downloader)
 ![GitHub stars](https://img.shields.io/github/stars/ivansaul/platzi-downloader)
@@ -40,9 +43,13 @@ Para [`instalar` | `actualizar` ], ejecuta el siguiente comando en tu terminal:
 pip install -U platzi
 ```
 
-Instala las dependencias de `playwright`:
+Instala las dependencias de `playwright` (elige uno o ambos):
 
 ```console
+# Firefox (recomendado por defecto)
+playwright install firefox
+
+# Chromium (alternativa)
 playwright install chromium
 ```
 
@@ -103,23 +110,31 @@ Para descargar un curso de Platzi, usa el comando download seguido de la URL del
 platzi download URL [OPTIONS]
 
 OPTIONS:
-  --quality / -q  Specifies the video quality (default: max). Options: [1080|720].
+  --quality / -q    Specifies the video quality (default: max). Options: [1080|720].
   --overwrite / -w  Overwrite files if exist.
+  --browser / -b    Browser to use: firefox (default) or chromium.
 ```
 
 Ejemplos:
 
 ```console
+# Usando Firefox (por defecto, RECOMENDADO)
 platzi download https://platzi.com/cursos/python
 ```
 
 ```console
-platzi download https://platzi.com/cursos/python/ -q 720
+# Usando Chromium (solo soporta HLS/m3u8, algunos videos DASH/mpd pueden fallar)
+platzi download https://platzi.com/cursos/python --browser chromium
 ```
 
 ```console
-platzi download https://platzi.com/cursos/python -w
+# Con opciones adicionales
+platzi download https://platzi.com/cursos/python/ -q 720 -w --browser firefox
 ```
+
+> [!WARNING]
+> **Chromium**: Solo soporta videos HLS (`.m3u8`). Videos DASH (`.mpd`) generan error 403 Forbidden.
+> **Firefox**: Soporta ambos formatos (HLS y DASH) sin problemas. **Se recomienda usar Firefox.**
 
 ### Descarga por Lotes (Batch Download) 🆕
 
@@ -172,7 +187,32 @@ platzi batch-download urls.txt --quality 1080 --overwrite
 - ✅ Soporte para comentarios en el archivo
 - ✅ Informe detallado al finalizar
 
-📖 **[Ver guía completa de Batch Download](BATCH_DOWNLOAD.md)**
+### Reintentar Descargas Fallidas
+
+Para reintentar automáticamente todos los cursos/unidades que fallaron:
+
+```console
+platzi retry-failed
+```
+
+Este comando:
+- Lee el tracking de descargas
+- Identifica automáticamente lo que falló
+- Reintenta descargar solo el contenido fallido
+
+### Limpiar Tracking
+
+Si borraste archivos manualmente pero el sistema aún cree que están descargados:
+
+```console
+# Vista previa (no modifica nada)
+platzi clean-tracking --dry-run
+
+# Limpiar tracking
+platzi clean-tracking
+```
+
+Este comando elimina del tracking las entradas de cursos/unidades completadas cuyos archivos ya no existen en disco.
 
 ### Borrar Caché
 
@@ -184,47 +224,19 @@ platzi clear-cache
 
 ## 🛠️ Herramientas de Gestión
 
-El proyecto incluye scripts auxiliares para gestionar descargas y resolver problemas.
+El proyecto incluye herramientas para gestión avanzada de descargas:
 
-📖 **[Ver guía completa de herramientas](TOOLS.md)**
-
-### Ver Estadísticas de Descarga
+### Ver Estadísticas (`show_stats.py`)
 
 ```console
 python show_stats.py
 ```
 
-Muestra:
-- Total de cursos y clases completadas
-- Porcentaje de progreso
-- Clases fallidas con detalles
-- Recomendaciones
+Muestra estadísticas detalladas del tracking de descargas.
 
-### Reintentar Clases Fallidas
+### Más Herramientas
 
-Si algunas clases fallaron, puedes reintentar su descarga:
-
-```console
-python reset_failed_classes.py
-python -m platzi download
-```
-
-Esto:
-1. Identifica clases con estado "failed"
-2. Las marca como "pending"
-3. Crea un archivo `clases_a_reintentar.txt` con el listado
-4. Al ejecutar download nuevamente, reintenta descargarlas
-
-### Forzar Descarga de Clases Pendientes
-
-Si hay clases en estado "pending" que no se están descargando:
-
-```console
-python force_download_pending.py
-python -m platzi download
-```
-
-Esto elimina las clases pendientes del registro para que se descarguen como nuevas.
+Ver la [Guía de Herramientas](TOOLS_GUIDE.md) para gestión avanzada y comandos adicionales.
 
 > [!IMPORTANT]
 > Asegúrate de estar logueado antes de intentar descargar los cursos.
@@ -237,7 +249,7 @@ Esto elimina las clases pendientes del registro para que se descarguen como nuev
 <br>
 
 > [!TIP]
-> Si obtienes algún error relacionado a `m3u8`o `ts` como por ejemplo; `Error downloading from .ts url` o `Error downloading m3u8`, elimina la carpeta temporal `.tmp` y vuelve a ejecutar el comando.
+> Si algunas clases fallan por errores de conexión (ERR_CONNECTION_CLOSED), el sistema reintentará automáticamente hasta 3 veces por clase. Si persisten los errores, usa `platzi retry-failed` para reintentar.
 
 <br>
 
@@ -247,7 +259,16 @@ Esto elimina las clases pendientes del registro para que se descarguen como nuev
 <br>
 
 > [!TIP]
-> Si algunas clases fallan por errores de conexión (ERR_CONNECTION_CLOSED), el sistema reintentará automáticamente hasta 3 veces por clase. Si persisten los errores, usa `python force_download_pending.py` para reintentar.
+> Para solución de problemas comunes (errores 403, carpetas vacías, etc.), consulta la [Guía de Troubleshooting](TROUBLESHOOTING.md).
+
+## 📚 Documentación Adicional
+
+- **[PROGRESS_TRACKING.md](PROGRESS_TRACKING.md)** - Sistema de trazabilidad y continuación de descargas
+- **[TOOLS_GUIDE.md](TOOLS_GUIDE.md)** - Guía completa de herramientas de gestión
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Solución de problemas comunes
+- **[CHANGELOG.md](CHANGELOG.md)** - Historial de cambios del proyecto
+
+---
 
 ## **Aviso de Uso**
 

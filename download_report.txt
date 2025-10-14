@@ -3,36 +3,53 @@
 ====================================================================================================
 
 Session started: 2025-10-10T14:09:52.378215
-Last updated: 2025-10-12T17:22:35.821736
+Last updated: 2025-10-13T22:01:06.971397
 
 📈 STATISTICS:
-  Courses: 126/149 completed, 0 failed
-  Units: 3446/3517 completed, 51 failed
+  Courses: 172/218 completed, 0 failed
+  Units: 4906/5162 completed, 82 failed
 
 🗂️  LEARNING PATHS:
-  ✅ Fundamentos del Desarrollo Web Profesional: 0/10 courses completed
-  ✅ Desarrollo Frontend con Angular: 0/10 courses completed
-  ✅ Desarrollo Frontend con React.js: 0/8 courses completed
-  ✅ Desarrollo Backend con Node.js: 0/22 courses completed
-  ✅ Desarrollo Backend con Python: 0/6 courses completed
-  ✅ Desarrollo Backend con Java: 0/7 courses completed
-  ✅ Desarrollo Backend con PHP: 0/17 courses completed
-  ✅ Desarrollo Backend con Ruby: 0/4 courses completed
-  ✅ Bases de Datos para Web: 0/11 courses completed
-  ✅ Seguridad Web & API: 0/12 courses completed
-  🔄 Testing Automatizado y QA para Web: 2/25 courses completed
+  🔄 Fundamentos del Desarrollo Web Profesional: 1/10 courses completed
+  ⏸️ Desarrollo Frontend con Angular: 0/10 courses completed
+  ⏸️ Desarrollo Frontend con React.js: 0/8 courses completed
+  🔄 Desarrollo Backend con Node.js: 4/22 courses completed
+  ⏸️ Desarrollo Backend con Python: 0/6 courses completed
+  🔄 Desarrollo Backend con Java: 1/7 courses completed
+  🔄 Desarrollo Backend con PHP: 1/17 courses completed
+  ⏸️ Desarrollo Backend con Ruby: 0/4 courses completed
+  ⏸️ Bases de Datos para Web: 0/11 courses completed
+  ⏸️ Seguridad Web & API: 0/12 courses completed
+  ⏸️ Testing Automatizado y QA para Web: 0/25 courses completed
+  ⏸️ Arquitecturas Web Modernas y Escalabilidad: 0/23 courses completed
+  🔄 DevOps y Cloud para Desarrolladores Web: 11/17 courses completed
+  🔄 Inglés Básico A1: 1/14 courses completed
 
-❌ ERRORS:
-  - [UNIT] Pruebas de Componentes con Data Test ID y Selectores CSS: Error downloading unit: Error downloading ts m3u8
-  - [UNIT] Pruebas de Espionaje en Componentes sin Dependencias: Error downloading unit: Error downloading m3u8
-  - [UNIT] Unit Testing para Componentes con Inyección de Dependencias: Error downloading unit: Error downloading m3u8
-  - [UNIT] Mocking y pruebas unitarias en Angular: Inyección de dependencias: Error downloading unit: Error downloading m3u8
-  - [UNIT] Pruebas Complejas en Angular: Testing de Componentes y Servicios: Error downloading unit: Error downloading m3u8
-  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
-  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
-  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
-  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
-  - [UNIT] Pruebas de Error 500 en Endpoints con Mock Service Worker: Error collecting unit data: Could not collect unit data for 'Unknown' - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers.
-  ... and 25 more errors
+❌ FAILED UNITS:
+  - Curso de PHP: Cookies, Sesiones y Modularización / Trabajando con Cookies en PHP: Creación y Configuración Avanzada
+    Error: Error collecting unit data: Could not collect unit data for 'Trabajando con Cookies en PHP: Creación y Configuración Avanzada'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Sesiones en PHP: Uso, Inicio y Cierre Seguros
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo básico de sesiones en PHP: creación y destrucción.
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo de Excepciones en PHP con Try-Catch
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Implementación de bloques Try-Catch en PHP
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Métodos de Excepciones en PHP: GetMessage, GetCode y GetTrace
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Creación de Excepciones Personalizadas en PHP
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo de Fechas en PHP: Funciones y Clases Esenciales
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Manipulación de Fechas en PHP: Procedimientos vs. POO
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  - Curso de PHP: Cookies, Sesiones y Modularización / Funciones útiles para trabajar con fechas en PHP
+    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
+  ... and 9 more failed units
+
+⏳ COURSES WITH PENDING UNITS:
+  - Curso de React Avanzado: 1/2 completed
+  - Curso de Inglés Básico A1 para Principiantes: 0/1 completed
 
 ====================================================================================================
