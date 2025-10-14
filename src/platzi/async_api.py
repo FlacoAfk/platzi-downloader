@@ -100,9 +100,12 @@ class AsyncPlatzi:
                 ]
             )
         else:  # firefox (default)
-            Logger.info("🦊 Using Firefox browser (headless mode)")
+            if self.headless:
+                Logger.info("🦊 Using Firefox browser (headless mode)")
+            else:
+                Logger.info("🦊 Using Firefox browser (visible mode)")
             self._browser = await self._playwright.firefox.launch(
-                headless=True,  # Firefox funciona perfecto en headless
+                headless=self.headless,
                 firefox_user_prefs={
                     'network.proxy.type': 0,
                     'network.dns.disablePrefetch': True,

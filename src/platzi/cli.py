@@ -225,7 +225,8 @@ def retry_failed(
 
 
 async def _login(browser: str = "firefox"):
-    async with AsyncPlatzi(browser_type=browser) as platzi:
+    # Login requires a visible browser for manual authentication
+    async with AsyncPlatzi(browser_type=browser, headless=False) as platzi:
         await platzi.login()
 
 
