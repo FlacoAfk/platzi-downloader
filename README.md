@@ -224,19 +224,25 @@ platzi clear-cache
 
 ## 🛠️ Herramientas de Gestión
 
-El proyecto incluye herramientas para gestión avanzada de descargas:
+### Gestor Principal (`platzi_manager.py`)
 
-### Ver Estadísticas (`show_stats.py`)
+Herramienta consolidada para gestión completa de descargas:
 
 ```console
-python show_stats.py
+# Ver estado de descargas
+python platzi_manager.py --status
+
+# Reintentar descargas fallidas
+python platzi_manager.py --retry-failed
+
+# Limpiar tracking de archivos eliminados
+python platzi_manager.py --clean-tracking
+
+# Ver todas las opciones
+python platzi_manager.py --help
 ```
 
-Muestra estadísticas detalladas del tracking de descargas.
-
-### Más Herramientas
-
-Ver la [Guía de Herramientas](TOOLS_GUIDE.md) para gestión avanzada y comandos adicionales.
+Ver la [Guía de Herramientas](TOOLS_GUIDE.md) para más comandos y casos de uso.
 
 > [!IMPORTANT]
 > Asegúrate de estar logueado antes de intentar descargar los cursos.

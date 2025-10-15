@@ -663,14 +663,6 @@ class AsyncPlatzi:
                             dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
                             Logger.print(f"[{dst.name}]", "[DOWNLOADING-LECTURE]")
                             await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
-
-                        # download quiz
-                        if unit.type == TypeUnit.QUIZ:
-                            # Ensure filename isn't too long
-                            safe_file_name = clean_string(unit.title, max_length=50)
-                            dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
-                            Logger.print(f"[{dst.name}]", "[DOWNLOADING-QUIZ]")
-                            await self.save_page(unit.url, path=dst, wait_for_images=False, **kwargs)
                         
                         # Mark unit as completed
                         self.progress.complete_unit(course_id, unit_id)
@@ -736,34 +728,78 @@ class AsyncPlatzi:
             
             await asyncio.sleep(1)  # Brief wait for dynamic content
             
-            # Wait for all images to load completely (only for lectures and quizzes)
+            # Wait for all images to load completely (only for lectures)
             if wait_for_images:
                 Logger.info("Waiting for all images to load...")
                 images_loaded = await page.evaluate("""
                     async () => {
-                        const images = Array.from(document.querySelectorAll('img'));
+                        // Function to process images in a document or shadowRoot
+                        const processImages = (root) => {
+                            const images = Array.from(root.querySelectorAll('img'));
+                            
+                            images.forEach(img => {
+                                // Force lazy-loaded images to load
+                                if (img.loading === 'lazy') {
+                                    img.loading = 'eager';
+                                }
+                                
+                                // Handle data-src attributes
+                                if (img.dataset.src && !img.src) {
+                                    img.src = img.dataset.src;
+                                }
+                                if (img.dataset.srcset && !img.srcset) {
+                                    img.srcset = img.dataset.srcset;
+                                }
+                                
+                                // Handle other lazy load attributes
+                                ['data-lazy-src', 'data-original', 'data-lazy'].forEach(attr => {
+                                    const value = img.getAttribute(attr);
+                                    if (value && !img.src) {
+                                        img.src = value;
+                                    }
+                                });
+                            });
+                            
+                            return images;
+                        };
                         
-                        // Force lazy-loaded images to load by setting their src if data-src exists
-                        images.forEach(img => {
-                            if (img.dataset.src && !img.src) {
-                                img.src = img.dataset.src;
+                        // Collect all images from main document
+                        let allImages = processImages(document);
+                        
+                        // Process iframes (try to access if same-origin)
+                        const iframes = Array.from(document.querySelectorAll('iframe'));
+                        for (const iframe of iframes) {
+                            try {
+                                if (iframe.contentDocument) {
+                                    const iframeImages = processImages(iframe.contentDocument);
+                                    allImages = allImages.concat(iframeImages);
+                                }
+                            } catch (e) {
+                                // Cross-origin iframe, skip
+                                console.warn('Cannot access iframe:', e);
                             }
-                            if (img.dataset.srcset && !img.srcset) {
-                                img.srcset = img.dataset.srcset;
+                        }
+                        
+                        // Process shadow DOMs
+                        const shadowHosts = document.querySelectorAll('*');
+                        shadowHosts.forEach(host => {
+                            if (host.shadowRoot) {
+                                const shadowImages = processImages(host.shadowRoot);
+                                allImages = allImages.concat(shadowImages);
                             }
                         });
                         
                         // Wait for all images to load
-                        const imagePromises = images.map(img => {
+                        const imagePromises = allImages.map(img => {
                             if (img.complete && img.naturalHeight !== 0) {
                                 return Promise.resolve();
                             }
                             
-                            return new Promise((resolve, reject) => {
+                            return new Promise((resolve) => {
                                 const timeout = setTimeout(() => {
                                     console.warn('Image load timeout:', img.src);
-                                    resolve(); // Resolve anyway to not block
-                                }, 30000); // 30 second timeout per image
+                                    resolve();
+                                }, 45000); // 45 second timeout per image
                                 
                                 img.onload = () => {
                                     clearTimeout(timeout);
@@ -772,11 +808,11 @@ class AsyncPlatzi:
                                 img.onerror = () => {
                                     clearTimeout(timeout);
                                     console.warn('Image load error:', img.src);
-                                    resolve(); // Resolve anyway to continue
+                                    resolve();
                                 };
                                 
                                 // Trigger reload if needed
-                                if (!img.complete) {
+                                if (!img.complete && img.src) {
                                     const src = img.src;
                                     img.src = '';
                                     img.src = src;
@@ -787,16 +823,16 @@ class AsyncPlatzi:
                         await Promise.all(imagePromises);
                         
                         return {
-                            totalImages: images.length,
-                            loadedImages: images.filter(img => img.complete && img.naturalHeight !== 0).length
+                            totalImages: allImages.length,
+                            loadedImages: allImages.filter(img => img.complete && img.naturalHeight !== 0).length
                         };
                     }
                 """)
                 
                 Logger.info(f"Images loaded: {images_loaded['loadedImages']}/{images_loaded['totalImages']}")
                 
-                # Additional wait to ensure images are in browser cache
-                await asyncio.sleep(2)
+                # Additional wait to ensure images are in browser cache and fully rendered
+                await asyncio.sleep(3)
             
             # Fix image sizes in Viewer_Viewer__BrpuP divs before capturing
             await page.evaluate("""
@@ -814,11 +850,308 @@ class AsyncPlatzi:
                 }
             """)
             
+            # Convert images to base64 data URLs to ensure they're included in MHTML
+            if wait_for_images:
+                Logger.info("Converting images to base64 for MHTML...")
+                await page.evaluate("""
+                    async () => {
+                        const convertImageToDataURL = async (img) => {
+                            if (!img.src || img.src.startsWith('data:')) {
+                                return; // Already a data URL or no source
+                            }
+                            
+                            try {
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                
+                                // Wait for image to be fully loaded
+                                if (!img.complete) {
+                                    await new Promise((resolve) => {
+                                        img.onload = resolve;
+                                        img.onerror = resolve;
+                                        setTimeout(resolve, 5000);
+                                    });
+                                }
+                                
+                                canvas.width = img.naturalWidth || img.width;
+                                canvas.height = img.naturalHeight || img.height;
+                                
+                                if (canvas.width > 0 && canvas.height > 0) {
+                                    ctx.drawImage(img, 0, 0);
+                                    try {
+                                        const dataURL = canvas.toDataURL('image/png');
+                                        img.src = dataURL;
+                                    } catch (e) {
+                                        // CORS error, skip this image
+                                        console.warn('CORS error converting image:', img.src, e);
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('Error converting image to base64:', img.src, e);
+                            }
+                        };
+                        
+                        const allImages = Array.from(document.querySelectorAll('img'));
+                        
+                        // Process images in batches to avoid overwhelming the browser
+                        const batchSize = 10;
+                        for (let i = 0; i < allImages.length; i += batchSize) {
+                            const batch = allImages.slice(i, i + batchSize);
+                            await Promise.all(batch.map(img => convertImageToDataURL(img)));
+                        }
+                        
+                        return { converted: allImages.length };
+                    }
+                """)
+                Logger.info("Image conversion complete")
+                
+                # Additional wait to ensure conversion is fully processed
+                await asyncio.sleep(2)
+            
+            # Extract ONLY the educational content (Viewer_Viewer section)
+            content_extraction = await page.evaluate("""
+                () => {
+                    // Find the main educational content
+                    const mainContent = document.querySelector('.page_Classes__main__g6m_Q');
+                    const viewerContent = document.querySelector('.Viewer_Viewer__pn_05') || 
+                                        document.querySelector('[class*="Viewer_Viewer"]');
+                    
+                    if (!viewerContent && !mainContent) {
+                        return {
+                            content: document.body.innerHTML,
+                            hasContent: false,
+                            hasInteractive: false
+                        };
+                    }
+                    
+                    // Use viewer content if available, otherwise main content
+                    const contentToExtract = viewerContent || mainContent;
+                    
+                    // Check for interactive content
+                    const codeBlocks = contentToExtract.querySelectorAll('pre code, [class*="language-"], .highlight, .codehilite');
+                    const sandboxes = contentToExtract.querySelectorAll('iframe[src*="codesandbox"], iframe[src*="stackblitz"], iframe[src*="codepen"], iframe[sandbox]');
+                    const hasInteractive = codeBlocks.length > 0 || sandboxes.length > 0;
+                    
+                    return {
+                        content: contentToExtract.innerHTML,
+                        hasContent: true,
+                        hasInteractive: hasInteractive,
+                        title: document.querySelector('h1')?.textContent || 'Clase'
+                    };
+                }
+            """)
+            
+            # If we extracted content successfully, create a clean HTML file
+            if content_extraction['hasContent'] and wait_for_images:
+                Logger.info(f"Extracting educational content - Interactive: {content_extraction['hasInteractive']}")
+                
+                # Create a clean HTML with only the educational content
+                clean_html = f"""
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{content_extraction['title']}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        h1, h2, h3, h4, h5, h6 {{
+            margin: 1.5em 0 0.5em;
+            color: #2c3e50;
+        }}
+        p {{
+            margin: 1em 0;
+        }}
+        img {{
+            width: 80%;
+            height: auto;
+            display: block;
+            margin: 1em auto;
+            border-radius: 4px;
+        }}
+        pre {{
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1.5em 0;
+            line-height: 1.5;
+        }}
+        code {{
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+        }}
+        pre code {{
+            background: none;
+            padding: 0;
+        }}
+        ul, ol {{
+            margin: 1em 0 1em 2em;
+        }}
+        li {{
+            margin: 0.5em 0;
+        }}
+        a {{
+            color: #0066cc;
+            text-decoration: none;
+        }}
+        a:hover {{
+            text-decoration: underline;
+        }}
+        blockquote {{
+            border-left: 4px solid #0066cc;
+            padding-left: 20px;
+            margin: 1.5em 0;
+            color: #666;
+            font-style: italic;
+        }}
+        iframe {{
+            max-width: 100%;
+            margin: 1.5em 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5em 0;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }}
+        th {{
+            background: #f8f9fa;
+            font-weight: 600;
+        }}
+        /* Preserve code syntax highlighting classes */
+        .token {{ font-family: 'Courier New', Courier, monospace; }}
+        .token.comment {{ color: #6a9955; }}
+        .token.keyword {{ color: #569cd6; }}
+        .token.string {{ color: #ce9178; }}
+        .token.function {{ color: #dcdcaa; }}
+        .token.operator {{ color: #d4d4d4; }}
+        .token.number {{ color: #b5cea8; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        {content_extraction['content']}
+    </div>
+</body>
+</html>
+"""
+                
+                # Save the clean HTML
+                if path.suffix.lower() == '.mhtml':
+                    path = path.with_suffix('.html')
+                
+                async with aiofiles.open(path, "w", encoding="utf-8") as file:
+                    await file.write(clean_html)
+                
+                Logger.info(f"Page saved as clean HTML: {path.name}")
+            
+            # Fallback: If content extraction failed, use the old method
+            elif wait_for_images:
+                Logger.warning("Content extraction failed, using fallback method...")
+                
+                # Embed all external CSS and JS inline
+                await page.evaluate("""
+                    async () => {
+                        // Inline all external stylesheets
+                        const styleSheets = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+                        for (const link of styleSheets) {
+                            try {
+                                const href = link.href;
+                                if (href && !href.startsWith('data:') && !href.startsWith('blob:')) {
+                                    const response = await fetch(href);
+                                    const cssText = await response.text();
+                                    const style = document.createElement('style');
+                                    style.setAttribute('data-original-href', href);
+                                    style.textContent = cssText;
+                                    link.parentNode.insertBefore(style, link);
+                                    link.remove();
+                                }
+                            } catch (e) {
+                                console.warn('Could not inline stylesheet:', link.href, e);
+                            }
+                        }
+                        
+                        // Try to inline external scripts (non-async, non-module)
+                        const scripts = Array.from(document.querySelectorAll('script[src]'));
+                        for (const script of scripts) {
+                            try {
+                                const src = script.src;
+                                if (src && !src.startsWith('data:') && !src.startsWith('blob:') && !script.hasAttribute('async') && !script.type.includes('module')) {
+                                    // Only inline if same-origin or CORS allows
+                                    const response = await fetch(src);
+                                    const jsText = await response.text();
+                                    const inlineScript = document.createElement('script');
+                                    inlineScript.setAttribute('data-original-src', src);
+                                    inlineScript.textContent = jsText;
+                                    script.parentNode.insertBefore(inlineScript, script);
+                                    script.remove();
+                                }
+                            } catch (e) {
+                                // Keep external script if we can't inline it (CORS, etc.)
+                                console.warn('Could not inline script:', script.src, e);
+                            }
+                        }
+                    }
+                """)
+                
+                await asyncio.sleep(1);
+                
+                # Get the complete HTML with all resources embedded
+                content = await page.content()
+                
+                # Change extension to .html if it was .mhtml
+                if path.suffix.lower() == '.mhtml':
+                    path = path.with_suffix('.html')
+                
+                async with aiofiles.open(path, "w", encoding="utf-8") as file:
+                    await file.write(content)
+                
+                Logger.info(f"Page saved as interactive HTML with embedded resources: {path.name}")
+            
             # Use different save methods depending on browser type
-            if self.browser_type == "chromium":
+            elif self.browser_type == "chromium":
                 # Chromium supports CDP and MHTML
                 try:
                     client = await page.context.new_cdp_session(page)
+                    
+                    # Enable necessary domains for better resource capture
+                    await client.send("Network.enable")
+                    await client.send("Page.enable")
+                    
+                    # Wait a bit more to ensure all resources are ready
+                    await asyncio.sleep(1)
+                    
                     response = await client.send("Page.captureSnapshot", {"format": "mhtml"})
                     async with aiofiles.open(path, "w", encoding="utf-8", newline="\n") as file:
                         await file.write(response["data"])
@@ -829,14 +1162,14 @@ class AsyncPlatzi:
                         Logger.info(f"Page saved successfully (MHTML): {path.name}")
                 except Exception as cdp_error:
                     Logger.warning(f"CDP/MHTML failed, falling back to HTML: {str(cdp_error)}")
-                    # Fallback to HTML
+                    # Fallback to HTML with embedded images
                     content = await page.content()
                     # Change extension to .html if it was .mhtml
                     if path.suffix.lower() == '.mhtml':
                         path = path.with_suffix('.html')
                     async with aiofiles.open(path, "w", encoding="utf-8") as file:
                         await file.write(content)
-                    Logger.info(f"Page saved as HTML: {path.name}")
+                    Logger.info(f"Page saved as HTML with embedded images: {path.name}")
             else:
                 # Firefox doesn't support CDP/MHTML, save as HTML
                 content = await page.content()
