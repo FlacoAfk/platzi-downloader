@@ -25,6 +25,7 @@ platzi = "platzi.cli:app"
 [tool.poetry.dependencies]
 python = "^3.10"
 typer = "^0.13.0"
+click = "^8.1.7"
 pydantic = "^2.9.2"
 pyhumps = "^3.8.0"
 tqdm = "^4.67.0"
