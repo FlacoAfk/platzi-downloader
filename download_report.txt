@@ -2,54 +2,14 @@
 📊 DOWNLOAD PROGRESS REPORT
 ====================================================================================================
 
-Session started: 2025-10-10T14:09:52.378215
-Last updated: 2025-10-13T22:01:06.971397
+Session started: 2025-10-14T14:36:06.999203
+Last updated: 2025-10-14T14:48:35.182963
 
 📈 STATISTICS:
-  Courses: 172/218 completed, 0 failed
-  Units: 4906/5162 completed, 82 failed
-
-🗂️  LEARNING PATHS:
-  🔄 Fundamentos del Desarrollo Web Profesional: 1/10 courses completed
-  ⏸️ Desarrollo Frontend con Angular: 0/10 courses completed
-  ⏸️ Desarrollo Frontend con React.js: 0/8 courses completed
-  🔄 Desarrollo Backend con Node.js: 4/22 courses completed
-  ⏸️ Desarrollo Backend con Python: 0/6 courses completed
-  🔄 Desarrollo Backend con Java: 1/7 courses completed
-  🔄 Desarrollo Backend con PHP: 1/17 courses completed
-  ⏸️ Desarrollo Backend con Ruby: 0/4 courses completed
-  ⏸️ Bases de Datos para Web: 0/11 courses completed
-  ⏸️ Seguridad Web & API: 0/12 courses completed
-  ⏸️ Testing Automatizado y QA para Web: 0/25 courses completed
-  ⏸️ Arquitecturas Web Modernas y Escalabilidad: 0/23 courses completed
-  🔄 DevOps y Cloud para Desarrolladores Web: 11/17 courses completed
-  🔄 Inglés Básico A1: 1/14 courses completed
-
-❌ FAILED UNITS:
-  - Curso de PHP: Cookies, Sesiones y Modularización / Trabajando con Cookies en PHP: Creación y Configuración Avanzada
-    Error: Error collecting unit data: Could not collect unit data for 'Trabajando con Cookies en PHP: Creación y Configuración Avanzada'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Sesiones en PHP: Uso, Inicio y Cierre Seguros
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo básico de sesiones en PHP: creación y destrucción.
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo de Excepciones en PHP con Try-Catch
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Implementación de bloques Try-Catch en PHP
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Métodos de Excepciones en PHP: GetMessage, GetCode y GetTrace
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Creación de Excepciones Personalizadas en PHP
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Manejo de Fechas en PHP: Funciones y Clases Esenciales
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Manipulación de Fechas en PHP: Procedimientos vs. POO
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  - Curso de PHP: Cookies, Sesiones y Modularización / Funciones útiles para trabajar con fechas en PHP
-    Error: Error collecting unit data: Could not collect unit data for 'Unknown'
-  ... and 9 more failed units
+  Courses: 0/1 completed, 0 failed
+  Units: 3/4 completed, 0 failed
 
 ⏳ COURSES WITH PENDING UNITS:
-  - Curso de React Avanzado: 1/2 completed
-  - Curso de Inglés Básico A1 para Principiantes: 0/1 completed
+  - Curso de Windsurf AI: 3/4 completed
 
 ====================================================================================================
