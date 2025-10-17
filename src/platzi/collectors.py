@@ -303,7 +303,9 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
     SUMMARY_CONTENT_SELECTOR = 'div[class*="Resources_Resources__Articlass"]'
     SIBLINGS = '//following-sibling::ul[1]'
 
-    if "/quiz/" in url:
+    # Only skip actual quiz exams, not regular classes with "quiz" in their URL
+    # Quiz exams follow the pattern: /clases/quiz/NUMBER/
+    if "/clases/quiz/" in url:
         return Unit(
             url=url,
             title="Quiz",
