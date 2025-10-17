@@ -169,6 +169,9 @@ class AsyncPlatzi:
             ignore_https_errors=True,
         )
         
+        # Set default timeout to 60 seconds for all operations (better for Firefox headless)
+        self._context.set_default_timeout(60000)
+        
         # Add anti-detection script
         await self._context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -262,7 +265,7 @@ class AsyncPlatzi:
         Logger.info("You have to login manually, you have 2 minutes to do it")
 
         page = await self.page
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
         try:
             avatar = await page.wait_for_selector(
                 ".styles-module_Menu__Avatar__FTuh-",
@@ -286,7 +289,7 @@ class AsyncPlatzi:
         """Navigate to URL with retry logic for better reliability."""
         for attempt in range(max_retries):
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
                 return  # Success
             except Exception as e:
                 if attempt < max_retries - 1:
@@ -772,7 +775,7 @@ class AsyncPlatzi:
             page = await self.page
             try:
                 # Try with networkidle first, but with timeout handling
-                await page.goto(src, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(src, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
                 # Wait for the page to be mostly ready
                 try:
                     await page.wait_for_load_state("networkidle", timeout=15000)
@@ -781,7 +784,7 @@ class AsyncPlatzi:
                     await page.wait_for_load_state("domcontentloaded")
             except Exception:
                 # If still fails, try with basic load
-                await page.goto(src, wait_until="load", timeout=45000)
+                await page.goto(src, wait_until="load", timeout=60000)  # 60s for Firefox headless
         else:
             page = src
 
@@ -1272,7 +1275,7 @@ class AsyncPlatzi:
     @try_except_request
     async def get_json(self, url: str) -> dict:
         page = await self.page
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
         content = await page.locator("pre").first.text_content()
         await page.close()
         return json.loads(content or "{}")

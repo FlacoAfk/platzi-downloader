@@ -22,7 +22,7 @@ async def get_learning_path_title(page: Page) -> str:
     title = None
     for selector in SELECTORS:
         try:
-            title = await page.locator(selector).first.text_content(timeout=5000)
+            title = await page.locator(selector).first.text_content(timeout=15000)  # Increased for Firefox headless
             if title and title.strip():
                 return title.strip()
         except Exception:
@@ -89,7 +89,7 @@ async def get_course_title(page: Page) -> str:
     
     for selector in SELECTORS:
         try:
-            title = await page.locator(selector).first.text_content(timeout=5000)
+            title = await page.locator(selector).first.text_content(timeout=15000)  # Increased for Firefox headless
             if title and title.strip() and len(title.strip()) > 3:
                 return title.strip()
         except Exception:
@@ -151,7 +151,7 @@ async def get_draft_chapters(page: Page) -> list[Chapter]:
             chapter_name = None
             for name_selector in CHAPTER_NAME_SELECTORS:
                 try:
-                    chapter_name = await chapter_element.locator(name_selector).first.text_content(timeout=5000)
+                    chapter_name = await chapter_element.locator(name_selector).first.text_content(timeout=15000)  # Increased for Firefox headless
                     if chapter_name and chapter_name.strip():
                         chapter_name = chapter_name.strip()
                         break
@@ -194,7 +194,7 @@ async def get_draft_chapters(page: Page) -> list[Chapter]:
                         unit_title = None
                         for title_selector in TITLE_SELECTORS:
                             try:
-                                unit_title = await ITEM_LOCATOR.locator(title_selector).first.text_content(timeout=3000)
+                                unit_title = await ITEM_LOCATOR.locator(title_selector).first.text_content(timeout=15000)  # Increased for Firefox headless
                                 if unit_title and unit_title.strip() and len(unit_title.strip()) >= 3:
                                     unit_title = unit_title.strip()
                                     break
@@ -333,8 +333,8 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                         print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries} after {wait_time}s wait...")
                     await asyncio.sleep(wait_time)
                 
-                # Shorter timeouts for faster failures
-                timeout = 45000  # 45s for all attempts (reduced from 60-90s)
+                # Increased timeout for Firefox headless mode
+                timeout = 60000  # 60s for all attempts (better for Firefox headless)
                 
                 if DEBUG_MODE and attempt > 0:
                     print(f"[DEBUG] Using timeout: {timeout}ms")
@@ -413,11 +413,12 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
         title = None
         for selector in TITLE_SELECTORS:
             try:
-                title = await page.locator(selector).first.text_content(timeout=15000)
-                if title and title.strip():
-                    break
+                title = await page.locator(selector).first.text_content(timeout=30000)  # Increased for Firefox headless
             except Exception:
                 continue
+        
+            if title and title.strip():
+                break
         
         if not title:
             raise Exception(f"Could not find title on page: {url}")
@@ -489,9 +490,9 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
             for reload_attempt in range(2):
                 try:
                     if reload_attempt == 0:
-                        await page.reload(wait_until="networkidle", timeout=30000)
+                        await page.reload(wait_until="networkidle", timeout=60000)  # Increased for Firefox headless
                     else:
-                        await page.reload(wait_until="domcontentloaded", timeout=30000)
+                        await page.reload(wait_until="domcontentloaded", timeout=60000)  # Increased for Firefox headless
                     reload_success = True
                     break
                 except Exception as reload_error:
@@ -503,7 +504,7 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                         try:
                             if DEBUG_MODE:
                                 print(f"[DEBUG] Reload failed, trying goto() instead...")
-                            await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+                            await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # Increased for Firefox headless
                             reload_success = True
                         except Exception as goto_error:
                             if DEBUG_MODE:
@@ -745,7 +746,8 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
             stylesheet_links = page.locator("link[rel=stylesheet]")
             count = await stylesheet_links.count()
             for i in range(count):
-                href = await stylesheet_links.nth(i).get_attribute("href")
+                # Increased timeout for Firefox headless mode
+                href = await stylesheet_links.nth(i).get_attribute("href", timeout=60000)  # 60s timeout
                 if href:
                     stylesheet = await download_styles(href)
                     all_css_styles.append(stylesheet)
