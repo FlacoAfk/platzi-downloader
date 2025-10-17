@@ -69,12 +69,7 @@ class AsyncPlatzi:
     def __init__(self, headless=True, browser_type="firefox"):
         self.loggedin = False
         self.browser_type = browser_type.lower()  # 'firefox' or 'chromium'
-        # Firefox: headless=True (funciona perfecto)
-        # Chromium: headless=False (evita 403 Forbidden, se minimiza)
-        if self.browser_type == "chromium":
-            self.headless = False  # Chromium en ventana visible para evitar detección
-        else:
-            self.headless = headless  # Firefox usa headless
+        self.headless = headless  # Respect user's headless preference for all browsers
         self.user = None
         self.progress = ProgressTracker()
 
@@ -85,31 +80,82 @@ class AsyncPlatzi:
         
         # Launch browser based on browser_type
         if self.browser_type == "chromium":
-            Logger.info("🌐 Using Chromium browser (visible, minimized)")
+            if self.headless:
+                mode_text = "minimized mode (1x1px off-screen)"
+                Logger.info(f"🌐 Using Chromium browser ({mode_text})")
+            else:
+                mode_text = "visible mode"
+                Logger.info(f"🌐 Using Chromium browser ({mode_text})")
+            
             Logger.warning("⚠️  IMPORTANT: Chromium only supports HLS videos (.m3u8)")
             Logger.warning("⚠️  Videos only available in DASH (.mpd) will be SKIPPED with 403 error")
             Logger.info("✅ Recommended: Use Firefox for full compatibility: --browser firefox")
+            
+            launch_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+            ]
+            
+            # Minimized mode: window off-screen at 1x1px
+            if self.headless:
+                launch_args.extend([
+                    '--window-position=-2000,-2000',  # Move off-screen
+                    '--window-size=1,1',  # Minimal window (1x1px)
+                ])
+            
+            # Always use headless=False to have a physical window
             self._browser = await self._playwright.chromium.launch(
-                headless=False,  # Ventana visible para evitar detección 403
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--window-position=-2000,-2000',  # Mover fuera de pantalla
-                    '--window-size=1,1',  # Ventana mínima
-                ]
+                headless=False,
+                args=launch_args
             )
         else:  # firefox (default)
             if self.headless:
-                Logger.info("🦊 Using Firefox browser (headless mode)")
+                mode_text = "headless mode"
+                Logger.info(f"🦊 Using Firefox browser ({mode_text})")
+                Logger.info("💡 Firefox headless mode works perfectly and avoids detection issues")
             else:
-                Logger.info("🦊 Using Firefox browser (visible mode)")
+                mode_text = "visible mode"
+                Logger.info(f"🦊 Using Firefox browser ({mode_text})")
+            
+            # Firefox: Use true headless mode for "minimized" (works great in Firefox)
+            # Unlike Chromium, Firefox headless doesn't have detection issues
             self._browser = await self._playwright.firefox.launch(
-                headless=self.headless,
+                headless=self.headless,  # True headless works perfectly in Firefox
                 firefox_user_prefs={
+                    # Network settings
                     'network.proxy.type': 0,
                     'network.dns.disablePrefetch': True,
+                    
+                    # Disable ALL security blocks that interfere with page loading
+                    'security.mixed_content.block_active_content': False,  # Allow mixed HTTP/HTTPS
+                    'security.mixed_content.block_display_content': False,
+                    'security.mixed_content.upgrade_display_content': False,
+                    'security.insecure_connection_text.enabled': False,
+                    'security.certerrors.permanentOverride': True,
+                    'security.enterprise_roots.enabled': True,
+                    
+                    # Disable tracking protection (causes blocks)
                     'privacy.trackingprotection.enabled': False,
+                    'privacy.trackingprotection.pbmode.enabled': False,
+                    'privacy.trackingprotection.cryptomining.enabled': False,
+                    'privacy.trackingprotection.fingerprinting.enabled': False,
+                    'privacy.trackingprotection.socialtracking.enabled': False,
+                    
+                    # Disable safe browsing (can block pages)
+                    'browser.safebrowsing.malware.enabled': False,
+                    'browser.safebrowsing.phishing.enabled': False,
+                    'browser.safebrowsing.downloads.enabled': False,
+                    
+                    # Performance and stability
+                    'browser.cache.disk.enable': True,
+                    'browser.cache.memory.enable': True,
+                    'media.volume_scale': '0.0',  # Mute audio
+                    'dom.webdriver.enabled': False,  # Hide webdriver flag
+                    
+                    # Disable popup blockers
+                    'dom.disable_open_during_load': False,
+                    'privacy.popups.showBrowserMessage': False,
                 }
             )
         
@@ -216,7 +262,7 @@ class AsyncPlatzi:
         Logger.info("You have to login manually, you have 2 minutes to do it")
 
         page = await self.page
-        await page.goto(LOGIN_URL)
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
         try:
             avatar = await page.wait_for_selector(
                 ".styles-module_Menu__Avatar__FTuh-",
@@ -236,6 +282,21 @@ class AsyncPlatzi:
         SESSION_FILE.unlink(missing_ok=True)
         Logger.info("Logged out successfully")
 
+    async def _goto_with_retry(self, page: Page, url: str, max_retries: int = 2) -> None:
+        """Navigate to URL with retry logic for better reliability."""
+        for attempt in range(max_retries):
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+                return  # Success
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    Logger.warning(f"⚠️  Navigation failed (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
+                    Logger.info(f"🔄 Retrying in 1 second...")
+                    await asyncio.sleep(1)  # Reduced from 2s to 1s
+                else:
+                    # Last attempt failed
+                    raise Exception(f"Failed to load page after {max_retries} attempts: {str(e)}")
+
     @try_except_request
     @login_required
     async def download(self, url: str, **kwargs):
@@ -243,7 +304,8 @@ class AsyncPlatzi:
         self.progress.start_session()
         
         page = await self.page
-        await page.goto(url)
+        # Use retry logic for more reliable navigation
+        await self._goto_with_retry(page, url)
 
         # Check if it's a learning path
         if "/ruta/" in url:
@@ -333,7 +395,8 @@ class AsyncPlatzi:
         page = await self.page
         
         try:
-            await page.goto(url)
+            # Use retry logic for more reliable navigation
+            await self._goto_with_retry(page, url)
 
             # course title
             course_title = await get_course_title(page)
@@ -405,6 +468,11 @@ class AsyncPlatzi:
                         elif existing_unit["status"] == "failed":
                             Logger.warning(f"⚠️  Retrying previously failed unit: {draft_unit.title}")
                             Logger.warning(f"    Previous error: {existing_unit.get('error', 'Unknown')}")
+                    
+                    # Add small delay between units to avoid overwhelming the server
+                    # This helps prevent timeouts and rate limiting
+                    if jdx > 1:  # Skip delay for first unit
+                        await asyncio.sleep(1.5)  # Reduced to 1s for faster processing
                     
                     # Register unit start (or restart)
                     self.progress.start_unit(course_id, unit_id, draft_unit.title)
@@ -1204,7 +1272,7 @@ class AsyncPlatzi:
     @try_except_request
     async def get_json(self, url: str) -> dict:
         page = await self.page
-        await page.goto(url)
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
         content = await page.locator("pre").first.text_content()
         await page.close()
         return json.loads(content or "{}")

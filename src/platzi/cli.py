@@ -20,15 +20,26 @@ def login(
             show_default=True,
         ),
     ] = "firefox",
+    headless: Annotated[
+        bool,
+        typer.Option(
+            "--headless/--no-headless",
+            "-h",
+            help="Hide browser window (Firefox: headless, Chromium: 1x1px off-screen).",
+            show_default=True,
+        ),
+    ] = False,
 ):
     """
     Open a browser window to Login to Platzi.
 
     Usage:
-        platzi login
+        platzi login                              # Visible window (default for login)
         platzi login --browser chromium
+        platzi login --no-headless                # Visible window
+        platzi login --headless                   # Hidden (Firefox: headless, Chromium: 1x1px)
     """
-    asyncio.run(_login(browser=browser))
+    asyncio.run(_login(browser=browser, headless=headless))
 
 
 @app.command()
@@ -78,6 +89,14 @@ def download(
             show_default=True,
         ),
     ] = "firefox",
+    headless: Annotated[
+        bool,
+        typer.Option(
+            "--headless/--no-headless",
+            help="Hide browser window (Firefox: headless, Chromium: 1x1px off-screen).",
+            show_default=True,
+        ),
+    ] = True,
 ):
     """
     Download a Platzi course from the given URL.
@@ -86,14 +105,15 @@ def download(
         url: str - The URL of the course to download.
 
     Usage:
-        platzi download <url>
+        platzi download <url>                                # Hidden (default)
+        platzi download <url> --no-headless                  # Visible window
         platzi download <url> --browser chromium
 
     Example:
         platzi download https://platzi.com/cursos/python/
-        platzi download https://platzi.com/cursos/python/ --browser chromium
+        platzi download https://platzi.com/cursos/python/ --no-headless  # Visible
     """
-    asyncio.run(_download(url, quality=quality, overwrite=overwrite, browser=browser))
+    asyncio.run(_download(url, quality=quality, overwrite=overwrite, browser=browser, headless=headless))
 
 
 @app.command()
@@ -153,6 +173,14 @@ def batch_download(
             show_default=True,
         ),
     ] = "firefox",
+    headless: Annotated[
+        bool,
+        typer.Option(
+            "--headless/--no-headless",
+            help="Hide browser window (Firefox: headless, Chromium: 1x1px off-screen).",
+            show_default=True,
+        ),
+    ] = True,
 ):
     """
     Download multiple Platzi courses/paths from a text file.
@@ -165,8 +193,8 @@ def batch_download(
         file_path: str - Path to the text file with URLs (default: urls.txt)
 
     Usage:
-        platzi batch-download
-        platzi batch-download urls.txt
+        platzi batch-download                                # Hidden (default)
+        platzi batch-download urls.txt --no-headless         # Visible window
         platzi batch-download custom_urls.txt --quality 720 --no-clear-cache
 
     Example urls.txt:
@@ -174,7 +202,7 @@ def batch_download(
         https://platzi.com/cursos/python/
         https://platzi.com/ruta/desarrollo-frontend-angular/
     """
-    asyncio.run(_batch_download(file_path, quality=quality, overwrite=overwrite, clear_cache_after_each=clear_cache_after_each, browser=browser))
+    asyncio.run(_batch_download(file_path, quality=quality, overwrite=overwrite, clear_cache_after_each=clear_cache_after_each, browser=browser, headless=headless))
 
 
 @app.command()
@@ -206,6 +234,14 @@ def retry_failed(
             show_default=True,
         ),
     ] = "firefox",
+    headless: Annotated[
+        bool,
+        typer.Option(
+            "--headless/--no-headless",
+            help="Hide browser window (Firefox: headless, Chromium: 1x1px off-screen).",
+            show_default=True,
+        ),
+    ] = True,
 ):
     """
     Retry downloading all failed courses and units from the checkpoint file.
@@ -214,19 +250,22 @@ def retry_failed(
     re-download all items that previously failed.
 
     Usage:
-        platzi retry-failed
+        platzi retry-failed                          # Hidden (default)
+        platzi retry-failed --no-headless            # Visible window
         platzi retry-failed --quality 720
         platzi retry-failed --checkpoint custom_progress.json
 
     Example:
         platzi retry-failed
     """
-    asyncio.run(_retry_failed(quality=quality, checkpoint_file=checkpoint_file, browser=browser))
+    asyncio.run(_retry_failed(quality=quality, checkpoint_file=checkpoint_file, browser=browser, headless=headless))
 
 
-async def _login(browser: str = "firefox"):
-    # Login requires a visible browser for manual authentication
-    async with AsyncPlatzi(browser_type=browser, headless=False) as platzi:
+async def _login(browser: str = "firefox", headless: bool = False):
+    # Login typically requires a visible browser for manual authentication
+    # headless=False means visible window
+    # headless=True means hidden (Firefox: headless, Chromium: 1x1px off-screen)
+    async with AsyncPlatzi(browser_type=browser, headless=headless) as platzi:
         await platzi.login()
 
 
@@ -237,7 +276,8 @@ async def _logout():
 
 async def _download(url: str, **kwargs):
     browser = kwargs.pop('browser', 'firefox')
-    async with AsyncPlatzi(browser_type=browser) as platzi:
+    headless = kwargs.pop('headless', True)
+    async with AsyncPlatzi(browser_type=browser, headless=headless) as platzi:
         await platzi.download(url, **kwargs)
 
 
@@ -289,11 +329,12 @@ async def _batch_download(file_path: str, **kwargs):
     failed = 0
     failed_urls = []
     
-    # Extract browser from kwargs
+    # Extract browser and headless from kwargs
     browser = kwargs.pop('browser', 'firefox')
+    headless = kwargs.pop('headless', True)
     
     # Process each URL
-    async with AsyncPlatzi(browser_type=browser) as platzi:
+    async with AsyncPlatzi(browser_type=browser, headless=headless) as platzi:
         for idx, url in enumerate(urls, 1):
             print(f"\n[bold blue]{'='*100}[/bold blue]")
             print(f"[bold blue]📥 Processing item {idx}/{len(urls)}[/bold blue]")
@@ -343,7 +384,7 @@ async def _batch_download(file_path: str, **kwargs):
     print(f"[bold green]{'='*100}[/bold green]\n")
 
 
-async def _retry_failed(quality: str = False, checkpoint_file: str = "download_progress.json", browser: str = "firefox"):
+async def _retry_failed(quality: str = False, checkpoint_file: str = "download_progress.json", browser: str = "firefox", headless: bool = True):
     """Retry all failed downloads from the checkpoint file."""
     from pathlib import Path
     from platzi.progress_tracker import ProgressTracker
@@ -377,7 +418,7 @@ async def _retry_failed(quality: str = False, checkpoint_file: str = "download_p
     successful = 0
     still_failed = 0
     
-    async with AsyncPlatzi(browser_type=browser) as platzi:
+    async with AsyncPlatzi(browser_type=browser, headless=headless) as platzi:
         # Retry failed courses
         if failed_courses:
             print(f"[bold cyan]📚 Retrying {len(failed_courses)} failed courses...[/bold cyan]\n")

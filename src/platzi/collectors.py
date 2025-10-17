@@ -319,20 +319,28 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
             print(f"[DEBUG] Opening URL: {url}")
         
         # Intentar cargar la página con reintentos
-        max_retries = 3
-        retry_delay = 10  # segundos entre reintentos
+        max_retries = 3  # Reduced to 3 for faster processing
+        retry_delay = 2  # Base delay in seconds (reduced from 5)
         
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
+                    # Shorter backoff: 2s, 4s, 6s
+                    wait_time = retry_delay * attempt
                     if DEBUG_MODE:
-                        print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries}")
-                    await asyncio.sleep(retry_delay * attempt)  # Delay incremental
+                        print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries} after {wait_time}s wait...")
+                    await asyncio.sleep(wait_time)
                 
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                # Shorter timeouts for faster failures
+                timeout = 45000  # 45s for all attempts (reduced from 60-90s)
+                
+                if DEBUG_MODE and attempt > 0:
+                    print(f"[DEBUG] Using timeout: {timeout}ms")
+                
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 
                 # Esperar un poco para que la página cargue
-                await asyncio.sleep(5)
+                await asyncio.sleep(1)  # Reduced from 3s to 1s
                 
                 # Verificar si es una página de error 500 con múltiples selectores
                 error_500_exists = False
@@ -355,27 +363,45 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                         raise Exception(f"Server returned Error 500 after {max_retries} attempts: {url}")
                 
                 # Si llegamos aquí, la página cargó correctamente
+                if DEBUG_MODE:
+                    print(f"[DEBUG] ✅ Page loaded successfully on attempt {attempt + 1}")
                 break
                 
             except Exception as e:
                 error_msg = str(e)
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Exception during page load: {error_msg}")
+                error_type = type(e).__name__
                 
-                if "net::ERR_CONNECTION_CLOSED" in error_msg or "ERR_CONNECTION_RESET" in error_msg:
+                if DEBUG_MODE:
+                    print(f"[DEBUG] {error_type} during page load: {error_msg[:150]}")
+                
+                # List of retryable errors
+                is_retryable = (
+                    "Timeout" in error_type or
+                    "TimeoutError" in error_type or
+                    "net::ERR_CONNECTION_CLOSED" in error_msg or
+                    "ERR_CONNECTION_RESET" in error_msg or
+                    "NS_BINDING_ABORTED" in error_msg or
+                    "Navigation failed" in error_msg
+                )
+                
+                if is_retryable:
                     if attempt < max_retries - 1:
                         if DEBUG_MODE:
-                            print(f"[DEBUG] Connection error, retrying... ({error_msg[:100]})")
+                            print(f"[DEBUG] ⚠️  Retryable error detected, will retry...")
                         continue
                     else:
-                        raise Exception(f"Connection failed after {max_retries} attempts: {error_msg}")
+                        # Last attempt failed
+                        error_hint = ""
+                        if "Timeout" in error_type:
+                            error_hint = " | TIP: Page took too long to load. Try using --no-headless for better stability."
+                        raise Exception(f"Failed to load page after {max_retries} attempts: {error_msg}{error_hint}")
                 elif "Server returned Error 500" in error_msg:
                     # Este error ya fue manejado arriba, re-lanzarlo
                     raise
                 else:
-                    # Otro tipo de error, no reintentar
+                    # Non-retryable error
                     if DEBUG_MODE:
-                        print(f"[DEBUG] Non-retryable error: {error_msg[:200]}")
+                        print(f"[DEBUG] ❌ Non-retryable error: {error_msg[:200]}")
                     raise
         
         if DEBUG_MODE:
@@ -456,15 +482,42 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
             if DEBUG_MODE:
                 print(f"[DEBUG] Reloading page to capture network requests...")
             
-            try:
-                await page.reload(wait_until="networkidle", timeout=30000)
-            except Exception:
-                # If networkidle fails, use domcontentloaded
-                await page.reload(wait_until="domcontentloaded", timeout=30000)
+            # Try reload with robust error handling
+            reload_success = False
+            for reload_attempt in range(2):
+                try:
+                    if reload_attempt == 0:
+                        await page.reload(wait_until="networkidle", timeout=30000)
+                    else:
+                        await page.reload(wait_until="domcontentloaded", timeout=30000)
+                    reload_success = True
+                    break
+                except Exception as reload_error:
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Reload attempt {reload_attempt + 1} failed: {str(reload_error)[:100]}")
+                    
+                    # If both reload attempts fail, try navigating to URL again
+                    if reload_attempt == 1:
+                        try:
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] Reload failed, trying goto() instead...")
+                            await page.goto(url, wait_until="domcontentloaded", timeout=45000)  # Reduced from 60s to 45s
+                            reload_success = True
+                        except Exception as goto_error:
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] ⚠️  All reload attempts failed: {str(goto_error)[:100]}")
+                            # Continue anyway, we might have captured data before the error
+                            reload_success = False
             
             # VideoPlayer found, wait for video content to load
-            await asyncio.sleep(3)
-            content = await page.content()
+            await asyncio.sleep(1)  # Reduced from 3s to 1s
+            
+            try:
+                content = await page.content()
+            except Exception as content_error:
+                if DEBUG_MODE:
+                    print(f"[DEBUG] ⚠️  Could not get page content: {str(content_error)[:100]}")
+                content = ""
             
             # Remove the listener
             try:
@@ -557,8 +610,13 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                             print(f"[DEBUG] Attempt {attempt + 1} failed: {str(e)[:80]}")
                         
                         if attempt < max_retries - 1:
-                            await asyncio.sleep(2 + attempt)
-                            content = await page.content()
+                            await asyncio.sleep(1)  # Reduced from 2+attempt to 1s
+                            try:
+                                content = await page.content()
+                            except Exception as content_err:
+                                if DEBUG_MODE:
+                                    print(f"[DEBUG] ⚠️  Could not get page content: {str(content_err)[:100]}")
+                                content = ""
                         else:
                             # Last attempt - check for video indicators
                             try:
@@ -569,8 +627,14 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                                 if has_video_controls:
                                     if DEBUG_MODE:
                                         print(f"[DEBUG] Waiting extra time for video...")
-                                    await asyncio.sleep(3)
-                                    content = await page.content()
+                                    await asyncio.sleep(2)  # Reduced from 3s to 2s
+                                    try:
+                                        content = await page.content()
+                                    except Exception as content_err:
+                                        if DEBUG_MODE:
+                                            print(f"[DEBUG] ⚠️  Could not get page content: {str(content_err)[:100]}")
+                                        content = ""
+                                    
                                     try:
                                         m3u8_url = get_m3u8_url(content)
                                         unit_type = TypeUnit.VIDEO
@@ -735,12 +799,24 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
         error_msg = f"Could not collect unit data for '{title if 'title' in locals() else 'Unknown'}'"
         
         # Añadir contexto adicional según el tipo de error
-        if "Error 500" in str(e):
+        error_str = str(e)
+        error_type = type(e).__name__
+        
+        if "Error 500" in error_str:
             error_msg += " - Server returned Error 500 (Internal Server Error). This may be a temporary issue with Platzi's servers."
-        elif "ERR_CONNECTION_CLOSED" in str(e) or "ERR_CONNECTION_RESET" in str(e):
+        elif "ERR_CONNECTION_CLOSED" in error_str or "ERR_CONNECTION_RESET" in error_str:
             error_msg += " - Connection was closed by the server. This may indicate rate limiting or temporary server issues."
-        elif "Could not find title" in str(e):
+        elif "Could not find title" in error_str:
             error_msg += " - Could not extract the class title from the page."
+        elif "NS_BINDING_ABORTED" in error_str or "frame was detached" in error_str:
+            error_msg += " - Firefox page reload failed (frame detached). This is a known Firefox headless issue. Try using --no-headless flag."
+        elif "Timeout" in error_type or "Timeout" in error_str:
+            error_msg += " - Page timed out during loading. Firefox headless can be unstable. TIP: Use --no-headless for better reliability."
+        elif "Page.reload" in error_str or "Page.goto" in error_str:
+            error_msg += " - Page navigation/reload failed. This may be due to Firefox headless instability. Consider using --no-headless."
+        elif "Failed to load page after" in error_str:
+            # This is our custom error from the retry loop
+            pass  # Error message already has details
         
         raise Exception(error_msg) from e
 
