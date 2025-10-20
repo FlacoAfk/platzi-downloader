@@ -108,15 +108,29 @@ class ProgressTracker:
         # Check if course already exists (retry scenario)
         is_new_course = course_id not in self.data["courses"]
         
-        # Preserve existing units if restarting
+        # Preserve existing units and learning paths if restarting
         existing_units = {}
-        if not is_new_course and "units" in self.data["courses"][course_id]:
-            existing_units = self.data["courses"][course_id]["units"]
+        existing_learning_path_ids = []
+        if not is_new_course:
+            if "units" in self.data["courses"][course_id]:
+                existing_units = self.data["courses"][course_id]["units"]
+            # Preserve existing learning_path_ids (handle both old singular and new list format)
+            old_path_ids = self.data["courses"][course_id].get("learning_path_ids", [])
+            old_path_id = self.data["courses"][course_id].get("learning_path_id")
+            if old_path_ids:
+                existing_learning_path_ids = old_path_ids
+            elif old_path_id:
+                existing_learning_path_ids = [old_path_id]
+        
+        # Add new learning_path_id if provided and not already in list
+        learning_path_ids = existing_learning_path_ids.copy()
+        if learning_path_id and learning_path_id not in learning_path_ids:
+            learning_path_ids.append(learning_path_id)
         
         self.data["courses"][course_id] = {
             "title": title,
             "status": DownloadStatus.IN_PROGRESS.value,
-            "learning_path_id": learning_path_id,
+            "learning_path_ids": learning_path_ids,  # Now a list
             "started_at": self.data["courses"][course_id].get("started_at", datetime.now().isoformat()) if not is_new_course else datetime.now().isoformat(),
             "completed_at": None,
             "error": None,
@@ -143,11 +157,17 @@ class ProgressTracker:
             if previous_status != DownloadStatus.COMPLETED.value:
                 self.data["statistics"]["completed_courses"] += 1
             
-            # Update learning path progress if applicable
-            learning_path_id = course_data.get("learning_path_id")
-            if learning_path_id and learning_path_id in self.data["learning_paths"]:
-                if previous_status != DownloadStatus.COMPLETED.value:
-                    self.data["learning_paths"][learning_path_id]["completed_courses"] += 1
+            # Update learning path progress if applicable (handle both old and new format)
+            learning_path_ids = course_data.get("learning_path_ids", [])
+            if not learning_path_ids:
+                old_path_id = course_data.get("learning_path_id")
+                if old_path_id:
+                    learning_path_ids = [old_path_id]
+            
+            for learning_path_id in learning_path_ids:
+                if learning_path_id in self.data["learning_paths"]:
+                    if previous_status != DownloadStatus.COMPLETED.value:
+                        self.data["learning_paths"][learning_path_id]["completed_courses"] += 1
             
             self._save()
             Logger.info(f"✅ Course '{course_data['title']}' marked as completed")
@@ -166,11 +186,17 @@ class ProgressTracker:
             if previous_status != DownloadStatus.FAILED.value:
                 self.data["statistics"]["failed_courses"] += 1
             
-            # Update learning path progress if applicable
-            learning_path_id = course_data.get("learning_path_id")
-            if learning_path_id and learning_path_id in self.data["learning_paths"]:
-                if previous_status != DownloadStatus.FAILED.value:
-                    self.data["learning_paths"][learning_path_id]["failed_courses"] += 1
+            # Update learning path progress if applicable (handle both old and new format)
+            learning_path_ids = course_data.get("learning_path_ids", [])
+            if not learning_path_ids:
+                old_path_id = course_data.get("learning_path_id")
+                if old_path_id:
+                    learning_path_ids = [old_path_id]
+            
+            for learning_path_id in learning_path_ids:
+                if learning_path_id in self.data["learning_paths"]:
+                    if previous_status != DownloadStatus.FAILED.value:
+                        self.data["learning_paths"][learning_path_id]["failed_courses"] += 1
             
             # Add to errors list
             self.data["errors"].append({

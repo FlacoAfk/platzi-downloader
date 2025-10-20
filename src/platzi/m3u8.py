@@ -12,6 +12,7 @@ import rnet
 from tqdm.asyncio import tqdm
 
 from .helpers import retry
+from .logger import Logger
 
 
 def ffmpeg_required(func):
@@ -54,23 +55,34 @@ async def _ts_dl(url: str, path: Path, **kwargs):
     path.unlink(missing_ok=True)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
-    response: rnet.Response = await client.get(url, **kwargs)
-
     try:
-        if not response.ok:
-            raise Exception("Error downloading from .ts url")
+        client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
+        # Firefox headless requires longer timeout for .ts fragments (120s)
+        response: rnet.Response = await client.get(url, timeout=120, **kwargs)
 
-        async with aiofiles.open(path, "wb") as file:
-            async with response.stream() as streamer:
-                async for chunk in streamer:
-                    await file.write(chunk)
+        try:
+            if not response.ok:
+                raise Exception(f"HTTP {response.status_code} from {url}")
 
-    except Exception:
-        raise
+            async with aiofiles.open(path, "wb") as file:
+                async with response.stream() as streamer:
+                    async for chunk in streamer:
+                        await file.write(chunk)
 
-    finally:
-        await response.close()
+        except Exception as e:
+            if "HTTP" in str(e):
+                raise  # Already has context, don't wrap again
+            raise Exception(f"Failed to download .ts fragment from {url}: {str(e)}")
+
+        finally:
+            await response.close()
+            
+    except Exception as e:
+        # Add more context about the specific error type
+        error_type = type(e).__name__
+        Logger.debug(f"Failed downloading .ts fragment: {url}")
+        Logger.debug(f"Error type: {error_type}")
+        raise Exception(f"[{error_type}] {str(e)}")
 
 
 async def _worker_ts_dl(urls: list, dir: Path, **kwargs):
@@ -89,8 +101,13 @@ async def _worker_ts_dl(urls: list, dir: Path, **kwargs):
 
             try:
                 await asyncio.gather(*tasks)
-            except Exception:
-                raise Exception("Error downloading ts m3u8")
+            except Exception as e:
+                # Don't wrap the error if it already has context
+                if "[" in str(e) and "]" in str(e):
+                    Logger.debug(f"Error in batch {i//BATCH_SIZE + 1} of {(len(urls)-1)//BATCH_SIZE + 1}")
+                    raise  # Already has detailed context from _ts_dl
+                Logger.debug(f"Worker error at batch {i//BATCH_SIZE + 1}")
+                raise Exception(f"Error downloading ts m3u8: {str(e)}")
 
             bar.update(len(urls_batch))
 
@@ -116,23 +133,30 @@ async def _m3u8_dl(
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
-    response: rnet.Response = await client.get(url, **kwargs)
+    # Firefox headless requires longer timeout (60s)
+    response: rnet.Response = await client.get(url, timeout=60, **kwargs)
 
     try:
         if not response.ok:
-            raise Exception("Error downloading m3u8")
+            raise Exception(f"Error downloading m3u8: HTTP {response.status_code}")
 
         ts_urls = _extract_streaming_urls(await response.text())
 
         if not ts_urls:
-            raise Exception("No ts urls found")
+            raise Exception("No ts urls found in m3u8 manifest")
 
         dir = Path(tmp_dir) / _hash_id(url)
 
         await _worker_ts_dl(ts_urls, dir, **kwargs)
 
-    except Exception:
-        raise
+    except Exception as e:
+        # Don't wrap the error if it already has detailed context
+        if "[" in str(e) and "]" in str(e):
+            Logger.debug(f"M3U8 download failed for URL: {url}")
+            Logger.debug(f"Number of fragments: {len(ts_urls) if 'ts_urls' in locals() else 'unknown'}")
+            raise  # Already has detailed context from lower levels
+        Logger.debug(f"M3U8 download error: {url}")
+        raise Exception(f"Error downloading m3u8: {str(e)}")
 
     finally:
         await response.close()
@@ -193,7 +217,7 @@ async def m3u8_dl(
     """
 
     # quality selection
-    quality = kwargs.get("quality", False)
+    quality = kwargs.get("quality", "720")
 
     quality = 0 if quality == '720' else 1
 
@@ -204,23 +228,30 @@ async def m3u8_dl(
         return
 
     client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
-    response: rnet.Response = await client.get(url, **kwargs)
+    # Firefox headless requires longer timeout (60s)
+    response: rnet.Response = await client.get(url, timeout=60, **kwargs)
 
     try:
         if not response.ok:
-            raise Exception("Error downloading m3u8")
+            raise Exception(f"Error downloading m3u8 manifest: HTTP {response.status_code}")
 
         m3u8_urls = _extract_streaming_urls(await response.text())  # The .m3u8 link contains the video resolutions
 
         if not m3u8_urls:
-            raise Exception("No m3u8 urls found")
+            raise Exception("No m3u8 quality urls found in manifest")
 
         # Use the requested quality index if available, otherwise use the last available resolution
         quality_index = min(int(quality), len(m3u8_urls) - 1)
         await _m3u8_dl(m3u8_urls[quality_index], path, **kwargs)  # Here goes the video resolution [0]=1280; [1]=1920
 
-    except Exception:
-        raise
+    except Exception as e:
+        # Don't wrap the error if it already has detailed context
+        if "[" in str(e) and "]" in str(e):
+            Logger.debug(f"M3U8 download failed for URL: {url}")
+            Logger.debug(f"Available quality URLs: {len(m3u8_urls) if 'm3u8_urls' in locals() else 'unknown'}")
+            raise  # Already has detailed context from lower levels
+        Logger.debug(f"M3U8 download error: {url}")
+        raise Exception(f"Error downloading m3u8: {str(e)}")
 
     finally:
         await response.close()

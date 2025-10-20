@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -58,7 +59,7 @@ def try_except_request(func):
             return await func(*args, **kwargs)
         except Exception as e:
             if str(e):
-                Logger.error(e)
+                Logger.error(str(e), exception=e)
         return
 
     return wrapper
@@ -285,6 +286,91 @@ class AsyncPlatzi:
         SESSION_FILE.unlink(missing_ok=True)
         Logger.info("Logged out successfully")
 
+    async def _copy_course_to_path(self, course_id: str, course_title: str, learning_path_id: str, **kwargs):
+        """Copy an already downloaded course to a new learning path folder.
+        
+        Returns:
+            bool: True if copy was successful, False otherwise
+        """
+        # Get the learning path info
+        path_title = kwargs.get("learning_path_title")
+        course_index = kwargs.get("course_index")
+        
+        if not path_title or course_index is None:
+            Logger.warning("Cannot copy course without learning path context")
+            return False
+        
+        # Find the original course directory
+        course_data = self.progress.data["courses"].get(course_id)
+        if not course_data:
+            Logger.warning(f"Course {course_id} not found in progress tracker, will re-download")
+            return False
+        
+        # Get original learning path IDs
+        original_path_ids = course_data.get("learning_path_ids", [])
+        if not original_path_ids:
+            # Fallback to old format
+            old_path_id = course_data.get("learning_path_id")
+            if old_path_id:
+                original_path_ids = [old_path_id]
+        
+        if not original_path_ids:
+            Logger.warning("Cannot find original learning path for course, will re-download")
+            return False
+        
+        # Find the source directory from the first learning path
+        original_path_id = original_path_ids[0]
+        original_path_data = self.progress.data["learning_paths"].get(original_path_id)
+        
+        if not original_path_data:
+            Logger.warning(f"Original learning path {original_path_id} not found, will re-download")
+            return False
+        
+        original_path_title = original_path_data["title"]
+        
+        # Find which index the course has in the original path (this is tricky, we'll search)
+        # For now, we'll search for the course folder in the Courses directory
+        courses_base = Path("Courses")
+        source_dir = None
+        
+        # Search in learning path structure
+        original_path_folder = courses_base / clean_string(original_path_title, max_length=35)
+        if original_path_folder.exists():
+            for item in original_path_folder.iterdir():
+                if item.is_dir() and clean_string(course_title, max_length=30) in item.name:
+                    source_dir = item
+                    break
+        
+        # If not found in learning path, check if it's a standalone course
+        if not source_dir:
+            standalone_folder = courses_base / clean_string(course_title, max_length=80)
+            if standalone_folder.exists():
+                source_dir = standalone_folder
+        
+        if not source_dir or not source_dir.exists():
+            Logger.warning(f"Cannot find source directory for course: {course_title}, will re-download")
+            return False
+        
+        # Create destination directory
+        dest_dir = courses_base / clean_string(path_title, max_length=35) / f"{course_index}. {clean_string(course_title, max_length=30)}"
+        
+        try:
+            if dest_dir.exists():
+                Logger.info(f"Destination already exists: {dest_dir}")
+            else:
+                Logger.info(f"Copying course from {source_dir} to {dest_dir}")
+                shutil.copytree(source_dir, dest_dir)
+                Logger.info(f"✅ Course copied successfully to {path_title}")
+            
+            # Update progress tracker to add this learning path ID
+            self.progress.start_course(course_id, course_title, learning_path_id)
+            self.progress.complete_course(course_id)
+            return True
+            
+        except Exception as e:
+            Logger.warning(f"Error copying course: {e}, will re-download", exception=e)
+            return False
+
     async def _goto_with_retry(self, page: Page, url: str, max_retries: int = 2) -> None:
         """Navigate to URL with retry logic for better reliability."""
         for attempt in range(max_retries):
@@ -376,7 +462,8 @@ class AsyncPlatzi:
             Logger.info(f"{'='*100}\n")
 
         except Exception as e:
-            Logger.error(f"Error downloading learning path: {e}")
+            Logger.error(f"Error downloading learning path: {e}", exception=e)
+            Logger.debug(f"Learning path download failed for URL: {url}")
             await page.close()
             raise
 
@@ -386,10 +473,33 @@ class AsyncPlatzi:
         """Download a single course."""
         course_id = urlparse(url).path
         
+        # Get course data from progress tracker
+        course_data = self.progress.data["courses"].get(course_id)
+        learning_path_id = kwargs.get("learning_path_id")
+        
         # Check if course was already completed AND has no pending units
         if self.progress.should_skip_course(course_id):
-            Logger.info(f"⏭️  Course already completed (no pending units), skipping: {url}")
-            return
+            # Course is complete but might belong to another learning path
+            if learning_path_id and course_data:
+                existing_path_ids = course_data.get("learning_path_ids", [])
+                if learning_path_id not in existing_path_ids:
+                    # Course is complete and belongs to a different path - try to copy it
+                    Logger.info(f"📋 Course already downloaded in another learning path. Attempting to copy...")
+                    copy_success = await self._copy_course_to_path(course_id, course_data["title"], learning_path_id, **kwargs)
+                    
+                    if copy_success:
+                        # Copy was successful, skip download
+                        return
+                    else:
+                        # Copy failed, continue with normal download
+                        Logger.info(f"🔄 Copy failed, re-downloading course: {url}")
+                        # Don't return here, let it continue to download
+                else:
+                    Logger.info(f"⏭️  Course already completed (no pending units), skipping: {url}")
+                    return
+            else:
+                Logger.info(f"⏭️  Course already completed (no pending units), skipping: {url}")
+                return
         
         # Check if course has pending units
         if self.progress.has_pending_units(course_id):
@@ -404,8 +514,20 @@ class AsyncPlatzi:
             # course title
             course_title = await get_course_title(page)
             
-            # Register course start
-            learning_path_id = kwargs.get("learning_path_id")
+            # Check if user has access to the course
+            if course_title == "No tienes acceso a este contenido" or "no tienes acceso" in course_title.lower():
+                Logger.warning(f"⚠️  Access denied to course: {url}")
+                Logger.warning(f"Course title: {course_title}")
+                Logger.info("This course is not available in your subscription. Skipping...")
+                
+                # Mark as failed with descriptive reason
+                self.progress.fail_course(
+                    course_id,
+                    "Access denied - Course not available in your subscription"
+                )
+                return
+            
+            # Register course start (will add to learning_path_ids list if already exists)
             self.progress.start_course(course_id, course_title, learning_path_id)
 
             # Check if this is part of a learning path
@@ -413,10 +535,11 @@ class AsyncPlatzi:
             course_index = kwargs.get("course_index")
             
             # download directory
-            # Apply length limits to avoid Windows 260 char path limit
+            # Apply aggressive length limits to avoid Windows 260 char path limit
+            # Max path calculation: Courses(8) + LPath(35) + Course(30) + Chapter(35) + File(40) + extras(~30) = ~178 chars
             if learning_path_title and course_index is not None:
                 # Structure: [Learning Path]/[N. Course]/
-                DL_DIR = Path("Courses") / clean_string(learning_path_title, max_length=60) / f"{course_index}. {clean_string(course_title, max_length=60)}"
+                DL_DIR = Path("Courses") / clean_string(learning_path_title, max_length=35) / f"{course_index}. {clean_string(course_title, max_length=30)}"
             else:
                 # Original structure for individual courses
                 DL_DIR = Path("Courses") / clean_string(course_title, max_length=80)
@@ -448,8 +571,16 @@ class AsyncPlatzi:
             for idx, draft_chapter in enumerate(draft_chapters, 1):
                 Logger.info(f"Creating directory: {draft_chapter.name}")
 
-                CHAP_DIR = DL_DIR / f"{idx}. {clean_string(draft_chapter.name, max_length=60)}"
-                CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                CHAP_DIR = DL_DIR / f"{idx}. {clean_string(draft_chapter.name, max_length=35)}"
+                try:
+                    CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    Logger.error(f"Failed to create chapter directory: {e}", exception=e)
+                    Logger.error(f"Path: {CHAP_DIR}")
+                    Logger.error(f"Path length: {len(str(CHAP_DIR))} characters")
+                    if len(str(CHAP_DIR)) > 240:
+                        Logger.error("⚠️  Path is too long for Windows (>240 chars). Consider using shorter names.")
+                    raise
 
                 # iterate over units
                 for jdx, draft_unit in enumerate(draft_chapter.units, 1):
@@ -484,16 +615,34 @@ class AsyncPlatzi:
                         unit = await get_unit(self.context, draft_unit.url, browser_type=self.browser_type)
                     except Exception as e:
                         error_msg = f"Error collecting unit data: {str(e)}"
-                        Logger.error(f"{error_msg} for '{draft_unit.title}'")
+                        Logger.error(f"{error_msg} for '{draft_unit.title}'", exception=e)
+                        Logger.debug(f"Failed unit URL: {draft_unit.url}")
                         Logger.warning("Skipping this unit and continuing with the next one...")
                         self.progress.fail_unit(course_id, unit_id, error_msg)
                         continue
                     
                     try:
-                        file_name = f"{jdx}. {clean_string(unit.title, max_length=50)}"
+                        file_name = f"{jdx}. {clean_string(unit.title, max_length=35)}"
 
                         # download video
                         if unit.video:
+                            # Ensure directory exists before downloading video
+                            if not CHAP_DIR.exists():
+                                Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                try:
+                                    CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                                except Exception as mkdir_err:
+                                    Logger.error(f"Failed to create directory: {mkdir_err}")
+                                    Logger.error(f"Path length: {len(str(CHAP_DIR))} chars")
+                                    raise
+                                
+                                # Verify directory was actually created
+                                if not CHAP_DIR.exists():
+                                    error_msg = f"Directory creation failed (path too long?): {CHAP_DIR}"
+                                    Logger.error(error_msg)
+                                    Logger.error(f"Path length: {len(str(CHAP_DIR))} characters (Windows limit: ~248)")
+                                    raise FileNotFoundError(error_msg)
+                            
                             dst = CHAP_DIR / f"{file_name}.mp4"
                             Logger.print(f"[{dst.name}]", "[DOWNLOADING-VIDEO]")
                             
@@ -529,7 +678,9 @@ class AsyncPlatzi:
                                             video_downloaded = True
                                             Logger.info(f"✅ Video downloaded successfully using fallback URL")
                                         except Exception as fallback_error:
-                                            Logger.error(f"❌ Fallback URL also failed: {str(fallback_error)[:100]}")
+                                            Logger.error(f"❌ Fallback URL also failed: {str(fallback_error)[:100]}", exception=fallback_error)
+                                            Logger.debug(f"Primary URL: {unit.video.url}")
+                                            Logger.debug(f"Fallback URL: {unit.video.fallback_url}")
                                             raise Exception(f"Both primary and fallback download failed. Primary: {str(primary_error)[:100]}, Fallback: {str(fallback_error)[:100]}")
                                 else:
                                     # Chromium without fallback but has m3u8
@@ -546,6 +697,11 @@ class AsyncPlatzi:
                             # download subtitles
                             subs = unit.video.subtitles_url
                             if subs:
+                                # Ensure directory exists before downloading subtitles
+                                if not CHAP_DIR.exists():
+                                    Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                    CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                                
                                 for sub in subs:
                                     lang = "_es" if "ES" in sub else "_en" if "EN" in sub else "_pt" if "PT" in sub else ""
 
@@ -558,6 +714,23 @@ class AsyncPlatzi:
                                 # download summary
                                 summary = unit.resources.summary
                                 if summary:
+                                    # Ensure directory exists before writing
+                                    if not CHAP_DIR.exists():
+                                        Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                        try:
+                                            CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                                        except Exception as mkdir_err:
+                                            Logger.error(f"Failed to create directory: {mkdir_err}")
+                                            Logger.error(f"Path length: {len(str(CHAP_DIR))} chars")
+                                            raise
+                                        
+                                        # Verify directory was actually created
+                                        if not CHAP_DIR.exists():
+                                            error_msg = f"Directory creation failed (path too long?): {CHAP_DIR}"
+                                            Logger.error(error_msg)
+                                            Logger.error(f"Path length: {len(str(CHAP_DIR))} characters (Windows limit: ~248)")
+                                            raise FileNotFoundError(error_msg)
+                                    
                                     dst = CHAP_DIR / f"{file_name}_summary.html"
                                     Logger.print(f"[{dst.name}]", "[SAVING-SUMMARY]")
                                     # Add beautiful styling to summary
@@ -706,13 +879,18 @@ class AsyncPlatzi:
                                 # download files
                                 files = unit.resources.files_url
                                 if files:
+                                    # Ensure directory exists before downloading files
+                                    if not CHAP_DIR.exists():
+                                        Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                        CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                                    
                                     for archive in files:
                                         file_name_archive = unquote(os.path.basename(archive))
                                         # Separate name and extension before cleaning
                                         name_part = os.path.splitext(file_name_archive)[0]
                                         ext_part = os.path.splitext(file_name_archive)[1]
                                         # Clean only the name, not the extension
-                                        name_part = clean_string(name_part, max_length=50)
+                                        name_part = clean_string(name_part, max_length=35)
                                         file_name_archive = f"{name_part}{ext_part}"
                                         dst = CHAP_DIR / f"{jdx}. {file_name_archive}"
                                         Logger.print(f"[{dst.name}]", "[DOWNLOADING-FILES]")
@@ -721,6 +899,11 @@ class AsyncPlatzi:
                                 # download readings
                                 readings = unit.resources.readings_url
                                 if readings:
+                                    # Ensure directory exists before saving readings
+                                    if not CHAP_DIR.exists():
+                                        Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                        CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                                    
                                     dst = CHAP_DIR / f"{jdx}. Lecturas recomendadas.txt"
                                     Logger.print(f"[{dst.name}]", "[SAVING-READINGS]")
                                     with open(dst, 'w', encoding='utf-8') as f:
@@ -729,8 +912,13 @@ class AsyncPlatzi:
 
                         # download lecture
                         if unit.type == TypeUnit.LECTURE:
+                            # Ensure directory exists before downloading lecture
+                            if not CHAP_DIR.exists():
+                                Logger.warning(f"Chapter directory does not exist, creating: {CHAP_DIR}")
+                                CHAP_DIR.mkdir(parents=True, exist_ok=True)
+                            
                             # Ensure filename isn't too long
-                            safe_file_name = clean_string(unit.title, max_length=50)
+                            safe_file_name = clean_string(unit.title, max_length=35)
                             dst = CHAP_DIR / f"{jdx}. {safe_file_name}.mhtml"
                             Logger.print(f"[{dst.name}]", "[DOWNLOADING-LECTURE]")
                             await self.save_page(unit.url, path=dst, wait_for_images=True, **kwargs)
@@ -740,7 +928,10 @@ class AsyncPlatzi:
                         
                     except Exception as e:
                         error_msg = f"Error downloading unit: {str(e)}"
-                        Logger.error(f"{error_msg} for '{unit.title}'")
+                        Logger.error(f"{error_msg} for '{unit.title}'", exception=e)
+                        Logger.debug(f"Unit type: {unit.type}, Unit ID: {unit_id}")
+                        if hasattr(unit, 'video') and unit.video:
+                            Logger.debug(f"Video URL: {unit.video.url}")
                         self.progress.fail_unit(course_id, unit_id, error_msg)
                         # Continue with next unit instead of stopping
 
@@ -750,7 +941,9 @@ class AsyncPlatzi:
             
         except Exception as e:
             error_msg = f"Error downloading course: {str(e)}"
-            Logger.error(error_msg)
+            Logger.error(error_msg, exception=e)
+            Logger.debug(f"Course URL: {url}")
+            Logger.debug(f"Course ID: {course_id}")
             self.progress.fail_course(course_id, error_msg)
             raise
         finally:
@@ -1106,6 +1299,19 @@ class AsyncPlatzi:
             border: 1px solid #ddd;
             border-radius: 4px;
         }}
+        /* Estilos especiales para iframes con sandbox (funciones interactivas) */
+        iframe[sandbox],
+        iframe[src*="jshero.platzi.com"],
+        iframe[src*="codesandbox"],
+        iframe[src*="stackblitz"],
+        iframe[src*="codepen"] {{
+            width: 100% !important;
+            height: 100vh !important;
+            min-height: 600px;
+            margin: 0;
+            border: none;
+            border-radius: 0;
+        }}
         table {{
             width: 100%;
             border-collapse: collapse;
@@ -1256,7 +1462,8 @@ class AsyncPlatzi:
                     Logger.info(f"Page saved successfully (HTML): {path.name}")
                     
         except Exception as e:
-            Logger.error(f"Error saving page: {str(e)}")
+            Logger.error(f"Error saving page: {str(e)}", exception=e)
+            Logger.debug(f"Page URL: {page.url}")
             # Try alternative method: save as HTML
             try:
                 content = await page.content()

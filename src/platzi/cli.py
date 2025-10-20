@@ -5,6 +5,7 @@ from rich import print
 from typing_extensions import Annotated
 
 from platzi import AsyncPlatzi, Cache
+from platzi.logger import Logger
 
 app = typer.Typer(rich_markup_mode="rich")
 
@@ -62,6 +63,8 @@ def download(
             show_default=False,
         ),
     ],
+    # TODO: Define a Quality enum (e.g. 360p, 720p, 1080p,...)
+    # and use it here instead of str
     quality: Annotated[
         str,
         typer.Option(
@@ -70,7 +73,7 @@ def download(
             help="The quality of the video to download.",
             show_default=True,
         ),
-    ] = False,
+    ] = "720",
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -97,6 +100,15 @@ def download(
             show_default=True,
         ),
     ] = True,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            "-d",
+            help="Enable debug mode for detailed error information with stack traces.",
+            show_default=True,
+        ),
+    ] = False,
 ):
     """
     Download a Platzi course from the given URL.
@@ -112,7 +124,12 @@ def download(
     Example:
         platzi download https://platzi.com/cursos/python/
         platzi download https://platzi.com/cursos/python/ --no-headless  # Visible
+        platzi download https://platzi.com/cursos/python/ --debug        # Debug mode
     """
+    # Enable debug mode if requested
+    if debug:
+        Logger.set_debug_mode(True)
+    
     asyncio.run(_download(url, quality=quality, overwrite=overwrite, browser=browser, headless=headless))
 
 
@@ -137,6 +154,8 @@ def batch_download(
             show_default=False,
         ),
     ] = "urls.txt",
+    # TODO: Define a Quality enum (e.g. 360p, 720p, 1080p,...)
+    # and use it here instead of str
     quality: Annotated[
         str,
         typer.Option(
@@ -145,7 +164,7 @@ def batch_download(
             help="The quality of the video to download.",
             show_default=True,
         ),
-    ] = False,
+    ] = "720",
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -181,6 +200,15 @@ def batch_download(
             show_default=True,
         ),
     ] = True,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            "-d",
+            help="Enable debug mode for detailed error information with stack traces.",
+            show_default=True,
+        ),
+    ] = False,
 ):
     """
     Download multiple Platzi courses/paths from a text file.
@@ -202,11 +230,17 @@ def batch_download(
         https://platzi.com/cursos/python/
         https://platzi.com/ruta/desarrollo-frontend-angular/
     """
+    # Enable debug mode if requested
+    if debug:
+        Logger.set_debug_mode(True)
+    
     asyncio.run(_batch_download(file_path, quality=quality, overwrite=overwrite, clear_cache_after_each=clear_cache_after_each, browser=browser, headless=headless))
 
 
 @app.command()
 def retry_failed(
+    # TODO: Define a Quality enum (e.g. 360p, 720p, 1080p,...)
+    # and use it here instead of str
     quality: Annotated[
         str,
         typer.Option(
@@ -215,7 +249,7 @@ def retry_failed(
             help="The quality of the video to download.",
             show_default=True,
         ),
-    ] = False,
+    ] = "720",
     checkpoint_file: Annotated[
         str,
         typer.Option(
@@ -242,6 +276,15 @@ def retry_failed(
             show_default=True,
         ),
     ] = True,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            "-d",
+            help="Enable debug mode for detailed error information with stack traces.",
+            show_default=True,
+        ),
+    ] = False,
 ):
     """
     Retry downloading all failed courses and units from the checkpoint file.
@@ -257,7 +300,12 @@ def retry_failed(
 
     Example:
         platzi retry-failed
+        platzi retry-failed --debug  # Debug mode
     """
+    # Enable debug mode if requested
+    if debug:
+        Logger.set_debug_mode(True)
+    
     asyncio.run(_retry_failed(quality=quality, checkpoint_file=checkpoint_file, browser=browser, headless=headless))
 
 

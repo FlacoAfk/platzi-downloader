@@ -80,8 +80,8 @@ async def get_learning_path_courses(page: Page) -> list[str]:
 @Cache.cache_async
 async def get_course_title(page: Page) -> str:
     SELECTORS = [
-        ".CourseHeader_CourseHeader__Title__yhjgH",  # Layout antiguo
-        'h1[class*="CourseHeader"]',  # Más flexible
+        'h1[class*="CourseHeader"]',  # Selector flexible (upstream)
+        ".CourseHeader_CourseHeader__Title__yhjgH",  # Layout antiguo (fallback)
         "main h1",  # Fallback genérico
         "h1",  # Último recurso
     ]
@@ -102,16 +102,17 @@ async def get_course_title(page: Page) -> str:
 @Cache.cache_async
 async def get_draft_chapters(page: Page) -> list[Chapter]:
     CHAPTER_SELECTORS = [
-        ".Syllabus_Syllabus__bVYL_ article",  # Layout antiguo
-        'article[class*="Syllabus"]',  # Más flexible
+        'section[class*="Syllabus"] article',  # Selector flexible (upstream)
+        ".Syllabus_Syllabus__bVYL_ article",  # Layout antiguo (fallback)
+        'article[class*="Syllabus"]',  # Flexible alternativo
         "article",  # Fallback genérico
     ]
     
     CHAPTER_NAME_SELECTORS = ["h2", 'h2[class*="Syllabus"]', "h3"]
     
     UNIT_LINK_SELECTORS = [
-        ".SyllabusSection_SyllabusSection__Materials__C2hlu a",  # Antiguo
-        'a[class*="ItemLink"]',  # ⭐ NUEVO (encontrado en análisis)
+        'a[class*="ItemLink"]',  # Selector flexible (upstream)
+        ".SyllabusSection_SyllabusSection__Materials__C2hlu a",  # Antiguo (fallback)
         'a[class*="SyllabusSection"]',
         'a[href*="/clases/"]',
     ]
@@ -286,16 +287,16 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
     
     # Selectores de enlaces de sección - Múltiples opciones
     SECTION_LINK_SELECTORS = [
-        'a.FilesAndLinks_Item__fR7g4',  # Clase antigua
-        'a.FilesAndLinks_Item__tXA4W',  # ⭐ NUEVA clase encontrada
-        'a[class*="FilesAndLinks_Item"]',  # Flexible
+        'a[class*="FilesAndLinks_Item"]',  # Selector flexible (upstream)
+        'a.FilesAndLinks_Item__fR7g4',  # Clase antigua (fallback)
+        'a.FilesAndLinks_Item__tXA4W',  # NUEVA clase encontrada (fallback)
     ]
     
     # Selectores de botones de descarga - Múltiples opciones
     DOWNLOAD_BUTTON_SELECTORS = [
-        'a.Button.FilesTree_FilesTree__Download__nGUsL[href][download]',  # Antiguo
-        'a.Button.FilesTree_FilesTree__Download__pvaHL[href][download]',  # ⭐ NUEVO
-        'a[class*="FilesTree__Download"][href][download]',  # Flexible
+        'a[class*="FilesTree__Download"][href][download]',  # Selector flexible (upstream)
+        'a.Button.FilesTree_FilesTree__Download__nGUsL[href][download]',  # Antiguo (fallback)
+        'a.Button.FilesTree_FilesTree__Download__pvaHL[href][download]',  # NUEVO (fallback)
         'a[download][target="_blank"]',  # Fallback con filtro "Descargar"
     ]
     
@@ -739,6 +740,13 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
         if await summary.count() > 0:
             all_css_styles: list[str] = []
 
+            # Get dynamic class names for layout (upstream improvement)
+            layout_container = await page.query_selector('div[class*="Layout_Layout__"]')
+            class_container = await layout_container.get_attribute("class") if layout_container else "Layout_Layout__s8xxr"
+
+            main_layout = await page.query_selector('main[class*="Layout_Layout-main"]')
+            class_main = await main_layout.get_attribute("class") if main_layout else "Layout_Layout-main__FbmEd"
+
             # Get the HTML structure of the summary (using .first to avoid strict mode violation)
             summary_section = await summary.evaluate("el => el.outerHTML")
 
@@ -772,8 +780,8 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                 <style>{styles}</style>
             </head>
             <body>
-                <div class="Layout_Layout__s8xxr">
-                    <main class="Layout_Layout-main__FbmEd">
+                <div class="{class_container}">
+                    <main class="{class_main}">
                         {summary_section}
                     </main>
                 </div>

@@ -6,6 +6,19 @@
 # https://platzi.com/cursos/python/
 # https://platzi.com/cursos/javascript-basico/
 
+https://platzi.com/ruta/intro-desarrollo-web/
+https://platzi.com/ruta/desarrollo-frontend-angular/
+https://platzi.com/ruta/desarrollo-frontend-react-js/
+https://platzi.com/ruta/desarrollo-backend-con-nodejs/
+https://platzi.com/ruta/desarrollo-backend-con-python/
+https://platzi.com/ruta/desarrollo-backend-con-java/
+https://platzi.com/ruta/desarrollo-backend-con-php/
+https://platzi.com/ruta/desarrollo-backend-con-ruby/
+https://platzi.com/ruta/bases-de-datos-para-web/
+https://platzi.com/ruta/seguridad-web-api/
+https://platzi.com/ruta/testing-automatizado-y-qa-para-web/
+https://platzi.com/ruta/arquitecturas-web-modernas-y-escalabilidad/
+https://platzi.com/ruta/devops-y-cloud-para-desarrolladores-web/
 https://platzi.com/ruta/beginner-core/
 https://platzi.com/ruta/beginner-core2/
 https://platzi.com/ruta/intermediate-core/

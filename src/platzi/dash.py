@@ -7,6 +7,7 @@ import functools
 import shutil
 from pathlib import Path
 from .helpers import retry
+from .logger import Logger
 
 
 def ffmpeg_required(func):
@@ -70,10 +71,15 @@ async def dash_dl(
         
         if process.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
+            Logger.debug(f"FFmpeg DASH download failed for URL: {url}")
+            Logger.debug(f"FFmpeg return code: {process.returncode}")
+            Logger.debug(f"FFmpeg error output: {error_msg[:500]}")
             raise Exception(f"Error downloading DASH video: {error_msg}")
             
     except Exception as e:
         # Clean up partial file if it exists
         if path.exists():
             path.unlink()
+        Logger.debug(f"DASH download error for URL: {url}")
+        Logger.debug(f"Target path: {path}")
         raise Exception(f"Error converting DASH to mp4: {str(e)}")

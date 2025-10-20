@@ -113,6 +113,7 @@ OPTIONS:
   --quality / -q    Specifies the video quality (default: max). Options: [1080|720].
   --overwrite / -w  Overwrite files if exist.
   --browser / -b    Browser to use: firefox (default) or chromium.
+  --debug / -d      Enable debug mode for detailed error information with stack traces.
 ```
 
 Ejemplos:
@@ -130,6 +131,11 @@ platzi download https://platzi.com/cursos/python --browser chromium
 ```console
 # Con opciones adicionales
 platzi download https://platzi.com/cursos/python/ -q 720 -w --browser firefox
+```
+
+```console
+# Modo debug (muestra información detallada de errores con stack traces)
+platzi download https://platzi.com/cursos/python/ --debug
 ```
 
 > [!WARNING]
@@ -150,6 +156,7 @@ OPTIONS:
   --overwrite / -w    Overwrite files if exist.
   --clear-cache / -c  Clear cache after each download (default: enabled).
   --no-clear-cache    Disable cache clearing after each download.
+  --debug / -d        Enable debug mode for detailed error information with stack traces.
 ```
 
 **Formato del archivo de URLs (`urls.txt`):**
@@ -180,6 +187,11 @@ platzi batch-download my_courses.txt
 platzi batch-download urls.txt --quality 1080 --overwrite
 ```
 
+```console
+# Modo debug para diagnóstico de errores
+platzi batch-download urls.txt --debug
+```
+
 **Características:**
 - ✅ Descarga múltiples URLs en orden secuencial
 - ✅ Limpieza automática de caché después de cada descarga
@@ -193,6 +205,9 @@ Para reintentar automáticamente todos los cursos/unidades que fallaron:
 
 ```console
 platzi retry-failed
+
+# Con modo debug para ver detalles de errores
+platzi retry-failed --debug
 ```
 
 Este comando:
@@ -222,6 +237,37 @@ Para borrar la caché de Platzi, usa el comando `clear-cache`.
 platzi clear-cache
 ```
 
+### 🐛 Modo Debug
+
+El modo debug proporciona información detallada sobre errores, incluyendo stack traces completos y variables locales. Es útil para diagnosticar problemas o reportar bugs.
+
+**Cuándo usar el modo debug:**
+- ✅ Al encontrar errores desconocidos o inesperados
+- ✅ Para diagnóstico detallado de problemas de descarga
+- ✅ Al reportar bugs o pedir soporte
+- ✅ Para desarrollo y troubleshooting avanzado
+
+**Qué muestra el modo debug:**
+- 🔍 Stack traces completos con líneas de código exactas
+- 🔍 Variables locales en el momento del error
+- 🔍 Tipo de excepción detallado (TimeoutError, ConnectionError, etc.)
+- 🔍 URLs específicas que fallaron
+- 🔍 Información de contexto adicional (número de fragmentos, rutas, etc.)
+
+**Ejemplo de salida:**
+```
+🐛 DEBUG MODE: Detailed Exception Information
+═══════════════════════════════════════════════════════════════════════
+Exception Type: TimeoutError
+Exception Message: Request timeout after 120 seconds
+
+[Full stack trace with local variables...]
+
+DEBUG: Failed downloading .ts fragment: https://...
+DEBUG: Error type: TimeoutError
+═══════════════════════════════════════════════════════════════════════
+```
+
 ## 🛠️ Herramientas de Gestión
 
 ### Gestor Principal (`platzi_manager.py`)
@@ -242,7 +288,7 @@ python platzi_manager.py --clean-tracking
 python platzi_manager.py --help
 ```
 
-Ver la [Guía de Herramientas](TOOLS_GUIDE.md) para más comandos y casos de uso.
+Ver la [Guía de Herramientas](docs/TOOLS_GUIDE.md) para más comandos y casos de uso.
 
 > [!IMPORTANT]
 > Asegúrate de estar logueado antes de intentar descargar los cursos.
@@ -270,7 +316,7 @@ Ver la [Guía de Herramientas](TOOLS_GUIDE.md) para más comandos y casos de uso
 ## 📚 Documentación Adicional
 
 - **[PROGRESS_TRACKING.md](PROGRESS_TRACKING.md)** - Sistema de trazabilidad y continuación de descargas
-- **[TOOLS_GUIDE.md](TOOLS_GUIDE.md)** - Guía completa de herramientas de gestión
+- **[TOOLS_GUIDE.md](docs/TOOLS_GUIDE.md)** - Guía completa de herramientas de gestión
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Solución de problemas comunes
 - **[CHANGELOG.md](CHANGELOG.md)** - Historial de cambios del proyecto
 
