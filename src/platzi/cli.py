@@ -331,6 +331,7 @@ async def _download(url: str, **kwargs):
 
 async def _batch_download(file_path: str, **kwargs):
     from pathlib import Path
+    from urllib.parse import urlparse
     
     clear_cache_after_each = kwargs.pop('clear_cache_after_each', True)
     
@@ -350,16 +351,18 @@ async def _batch_download(file_path: str, **kwargs):
     
     # Filter valid URLs (ignore comments and empty lines)
     urls = []
+    url_to_line_num = {}  # Map URL to original line number for commenting later
     for line_num, line in enumerate(lines, 1):
-        line = line.strip()
+        line_stripped = line.strip()
         # Ignore empty lines and comments
-        if not line or line.startswith('#'):
+        if not line_stripped or line_stripped.startswith('#'):
             continue
         # Basic URL validation
-        if line.startswith('http://') or line.startswith('https://'):
-            urls.append(line)
+        if line_stripped.startswith('http://') or line_stripped.startswith('https://'):
+            urls.append(line_stripped)
+            url_to_line_num[line_stripped] = line_num - 1  # 0-indexed for lines array
         else:
-            print(f"[yellow]Warning: Line {line_num} is not a valid URL, skipping: {line}[/yellow]")
+            print(f"[yellow]Warning: Line {line_num} is not a valid URL, skipping: {line_stripped}[/yellow]")
     
     if not urls:
         print("[yellow]No valid URLs found in the file.[/yellow]")
@@ -393,6 +396,52 @@ async def _batch_download(file_path: str, **kwargs):
                 await platzi.download(url, **kwargs)
                 successful += 1
                 print(f"\n[green]✅ Successfully downloaded item {idx}/{len(urls)}: {url}[/green]")
+                
+                # Extract ID from URL to check completion status
+                url_path = urlparse(url).path
+                is_learning_path = "/ruta/" in url
+                
+                # Check if the download is fully completed
+                is_completed = False
+                if is_learning_path:
+                    # For learning paths, check if it's completed
+                    if url_path in platzi.progress.data["learning_paths"]:
+                        path_status = platzi.progress.data["learning_paths"][url_path].get("status")
+                        is_completed = path_status == "completed"
+                else:
+                    # For individual courses, check if completed
+                    is_completed = platzi.progress.is_course_completed(url_path)
+                
+                # If completed, comment the URL in the file and remove from tracker
+                if is_completed:
+                    try:
+                        # Comment the URL in the text file
+                        line_index = url_to_line_num.get(url)
+                        if line_index is not None:
+                            # Read current file content
+                            with open(urls_file, 'r', encoding='utf-8') as f:
+                                current_lines = f.readlines()
+                            
+                            # Comment the line if not already commented
+                            if not current_lines[line_index].strip().startswith('#'):
+                                current_lines[line_index] = f"# {current_lines[line_index]}"
+                                
+                                # Write back to file
+                                with open(urls_file, 'w', encoding='utf-8') as f:
+                                    f.writelines(current_lines)
+                                
+                                print(f"[cyan]📝 Commented URL in {file_path}[/cyan]")
+                        
+                        # Remove from progress tracker
+                        if is_learning_path:
+                            platzi.progress.remove_learning_path(url_path)
+                            print(f"[cyan]🗑️  Removed learning path from tracker[/cyan]")
+                        else:
+                            platzi.progress.remove_course(url_path)
+                            print(f"[cyan]🗑️  Removed course from tracker[/cyan]")
+                    
+                    except Exception as cleanup_error:
+                        print(f"[yellow]⚠️  Could not cleanup tracking: {cleanup_error}[/yellow]")
                 
                 # Clear cache after each successful download if enabled
                 if clear_cache_after_each:

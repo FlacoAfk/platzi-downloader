@@ -62,6 +62,9 @@ async def _ts_dl(url: str, path: Path, **kwargs):
 
         try:
             if not response.ok:
+                # Detect rate limiting (429) and raise specific error
+                if response.status_code == 429:
+                    raise Exception(f"RATE_LIMIT_429 from {url}")
                 raise Exception(f"HTTP {response.status_code} from {url}")
 
             async with aiofiles.open(path, "wb") as file:
@@ -86,8 +89,13 @@ async def _ts_dl(url: str, path: Path, **kwargs):
 
 
 async def _worker_ts_dl(urls: list, dir: Path, **kwargs):
-    BATCH_SIZE = 5
+    # Reduced batch size from 5 to 2 to avoid rate limiting (HTTP 429)
+    BATCH_SIZE = 2
     IDX = 1
+    # Delay between batches to avoid overwhelming the server (in seconds)
+    BATCH_DELAY = 0.4
+    # Longer delay after rate limit error
+    RATE_LIMIT_DELAY = 3.0
 
     bar_format = "{desc} |{bar}|{percentage:3.0f}% [{n_fmt}/{total_fmt} fragments] [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
     with tqdm(total=len(urls), desc="Progress", colour='green', bar_format=bar_format, ascii='░█') as bar:
@@ -102,14 +110,24 @@ async def _worker_ts_dl(urls: list, dir: Path, **kwargs):
             try:
                 await asyncio.gather(*tasks)
             except Exception as e:
+                error_msg = str(e)
+                # Check if it's a rate limit error
+                if "RATE_LIMIT_429" in error_msg or "429" in error_msg:
+                    Logger.debug(f"Rate limit detected in batch {i//BATCH_SIZE + 1}, waiting {RATE_LIMIT_DELAY}s before retry")
+                    await asyncio.sleep(RATE_LIMIT_DELAY)
+                
                 # Don't wrap the error if it already has context
-                if "[" in str(e) and "]" in str(e):
+                if "[" in error_msg and "]" in error_msg:
                     Logger.debug(f"Error in batch {i//BATCH_SIZE + 1} of {(len(urls)-1)//BATCH_SIZE + 1}")
                     raise  # Already has detailed context from _ts_dl
                 Logger.debug(f"Worker error at batch {i//BATCH_SIZE + 1}")
-                raise Exception(f"Error downloading ts m3u8: {str(e)}")
+                raise Exception(f"Error downloading ts m3u8: {error_msg}")
 
             bar.update(len(urls_batch))
+            
+            # Add delay between batches to avoid rate limiting
+            if i + BATCH_SIZE < len(urls):  # Don't delay after last batch
+                await asyncio.sleep(BATCH_DELAY)
 
 
 @retry()

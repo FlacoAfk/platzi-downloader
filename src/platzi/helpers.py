@@ -43,7 +43,12 @@ def retry(attempts: int = 5, delay: float = 1, backoff: bool = True):
                 except Exception as e:
                     if i == attempts:
                         raise e
-                    wait = delay * (2 * i) if backoff else delay
+                    # Apply longer delay for rate limiting errors (429)
+                    error_msg = str(e)
+                    if "RATE_LIMIT_429" in error_msg or "429" in error_msg:
+                        wait = delay * (4 * i)  # More aggressive backoff for 429
+                    else:
+                        wait = delay * (2 * i) if backoff else delay
                     await asyncio.sleep(wait)
 
         return async_wrapper if is_async else sync_wrapper

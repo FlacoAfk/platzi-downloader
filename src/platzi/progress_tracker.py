@@ -539,6 +539,82 @@ class ProgressTracker:
             self._save()
         return retried_count
     
+    def get_failed_courses(self) -> Dict:
+        """Get dictionary of all failed courses."""
+        failed = {}
+        for course_id, course_data in self.data["courses"].items():
+            if course_data["status"] == DownloadStatus.FAILED.value:
+                failed[course_id] = course_data
+        return failed
+    
+    def reset_course(self, course_id: str):
+        """Reset a course status to allow retry."""
+        if course_id in self.data["courses"]:
+            course_data = self.data["courses"][course_id]
+            old_status = course_data["status"]
+            
+            # Reset course to in_progress
+            course_data["status"] = DownloadStatus.IN_PROGRESS.value
+            course_data["error"] = None
+            course_data["completed_at"] = None
+            
+            # Update statistics counters
+            if old_status == DownloadStatus.FAILED.value:
+                self.data["statistics"]["failed_courses"] = max(0, self.data["statistics"]["failed_courses"] - 1)
+            elif old_status == DownloadStatus.COMPLETED.value:
+                self.data["statistics"]["completed_courses"] = max(0, self.data["statistics"]["completed_courses"] - 1)
+            
+            # Reset all units to pending
+            for unit_id, unit_data in course_data.get("units", {}).items():
+                old_unit_status = unit_data["status"]
+                unit_data["status"] = DownloadStatus.PENDING.value
+                unit_data["error"] = None
+                unit_data["completed_at"] = None
+                
+                if old_unit_status == DownloadStatus.FAILED.value:
+                    self.data["statistics"]["failed_units"] = max(0, self.data["statistics"]["failed_units"] - 1)
+                elif old_unit_status == DownloadStatus.COMPLETED.value:
+                    self.data["statistics"]["completed_units"] = max(0, self.data["statistics"]["completed_units"] - 1)
+            
+            self._save()
+            Logger.info(f"🔄 Course '{course_data['title']}' reset for retry")
+    
+    def remove_course(self, course_id: str):
+        """Remove a completed course from the tracker."""
+        if course_id in self.data["courses"]:
+            course_data = self.data["courses"][course_id]
+            course_status = course_data["status"]
+            
+            # Update statistics
+            if course_status == DownloadStatus.COMPLETED.value:
+                self.data["statistics"]["completed_courses"] = max(0, self.data["statistics"]["completed_courses"] - 1)
+            elif course_status == DownloadStatus.FAILED.value:
+                self.data["statistics"]["failed_courses"] = max(0, self.data["statistics"]["failed_courses"] - 1)
+            
+            self.data["statistics"]["total_courses"] = max(0, self.data["statistics"]["total_courses"] - 1)
+            
+            # Update unit statistics
+            for unit_data in course_data.get("units", {}).values():
+                unit_status = unit_data["status"]
+                if unit_status == DownloadStatus.COMPLETED.value:
+                    self.data["statistics"]["completed_units"] = max(0, self.data["statistics"]["completed_units"] - 1)
+                elif unit_status == DownloadStatus.FAILED.value:
+                    self.data["statistics"]["failed_units"] = max(0, self.data["statistics"]["failed_units"] - 1)
+                self.data["statistics"]["total_units"] = max(0, self.data["statistics"]["total_units"] - 1)
+            
+            # Remove from courses
+            del self.data["courses"][course_id]
+            self._save()
+            Logger.info(f"🗑️  Removed course '{course_data['title']}' from tracker")
+    
+    def remove_learning_path(self, path_id: str):
+        """Remove a completed learning path from the tracker."""
+        if path_id in self.data["learning_paths"]:
+            path_data = self.data["learning_paths"][path_id]
+            del self.data["learning_paths"][path_id]
+            self._save()
+            Logger.info(f"🗑️  Removed learning path '{path_data['title']}' from tracker")
+    
     def reset(self):
         """Reset all progress (use with caution!)."""
         self.data = {
