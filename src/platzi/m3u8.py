@@ -30,18 +30,60 @@ def _hash_id(input: str) -> str:
     return hash_object.hexdigest()
 
 
+def _is_valid_url(url: str) -> bool:
+    """Check if URL is valid and doesn't contain control characters"""
+    try:
+        # Check for control characters (0x00-0x1F except tab, newline, carriage return)
+        for char in url:
+            code = ord(char)
+            if code < 0x20 and code not in (0x09, 0x0A, 0x0D):
+                return False
+            # Check for non-printable characters above 0x7F that aren't valid in URLs
+            if code > 0x7F and code < 0xA0:
+                return False
+        
+        # Must contain valid URL characters
+        if not url.startswith(('http://', 'https://', '//', '/')):
+            return False
+            
+        # Basic URL structure validation
+        if url.startswith('http'):
+            if '://' not in url:
+                return False
+                
+        return True
+    except Exception:
+        return False
+
+
 def _extract_streaming_urls(content: str) -> list[str] | None:
     BASE_URL = "https://mediastream.platzi.com"
-    pattern = r"(https?://[^\s]+|(?::)?///?[^\s]+)"
+    # More restrictive pattern that only matches valid URL characters
+    # Allows alphanumeric, dots, hyphens, underscores, forward slashes, question marks, equals, ampersands, and percent encoding
+    pattern = r"(https?://[A-Za-z0-9\.\-_/:?=&%]+|(?::)?///?[A-Za-z0-9\.\-_/:?=&%]+)"
     matches = re.findall(pattern, content)
 
     urls = []  # save video resolutions
+    invalid_count = 0
     for match in matches:
+        # Validate URL before adding
+        if not _is_valid_url(match):
+            invalid_count += 1
+            Logger.debug(f"Skipping invalid URL with control characters: {match[:50]}...")
+            continue
+            
         if match.startswith("http"):
             urls.append(match)
         else:
             full_url = BASE_URL.rstrip("/") + "/" + match.lstrip(":/")
-            urls.append(full_url)
+            if _is_valid_url(full_url):
+                urls.append(full_url)
+            else:
+                invalid_count += 1
+                Logger.debug(f"Skipping invalid constructed URL: {full_url[:50]}...")
+    
+    if invalid_count > 0:
+        Logger.debug(f"Filtered out {invalid_count} invalid URLs from m3u8 manifest")
 
     return urls or None
 
