@@ -1247,18 +1247,44 @@ class AsyncPlatzi:
 
         if isinstance(src, str):
             page = await self.page
+            # Try progressive loading strategies with increasing timeouts
+            loaded = False
+            last_error = None
+            
+            # Strategy 1: domcontentloaded (fastest, 90s timeout)
             try:
-                # Try with networkidle first, but with timeout handling
-                await page.goto(src, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
-                # Wait for the page to be mostly ready
+                Logger.debug("Attempting page load with domcontentloaded...")
+                await page.goto(src, wait_until="domcontentloaded", timeout=90000)
+                loaded = True
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=15000)
+                    await page.wait_for_load_state("networkidle", timeout=10000)
                 except Exception:
-                    # If networkidle times out, just continue with domcontentloaded
-                    await page.wait_for_load_state("domcontentloaded")
-            except Exception:
-                # If still fails, try with basic load
-                await page.goto(src, wait_until="load", timeout=60000)  # 60s for Firefox headless
+                    pass  # networkidle is optional
+            except Exception as e1:
+                last_error = e1
+                Logger.debug(f"domcontentloaded failed: {str(e1)[:100]}")
+            
+            # Strategy 2: load (slower but more complete, 120s timeout)
+            if not loaded:
+                try:
+                    Logger.debug("Retrying with load state (may take longer)...")
+                    await page.goto(src, wait_until="load", timeout=120000)
+                    loaded = True
+                except Exception as e2:
+                    last_error = e2
+                    Logger.debug(f"load failed: {str(e2)[:100]}")
+            
+            # Strategy 3: commit (most lenient, 150s timeout)
+            if not loaded:
+                try:
+                    Logger.debug("Final attempt with commit state...")
+                    await page.goto(src, wait_until="commit", timeout=150000)
+                    loaded = True
+                except Exception as e3:
+                    # All strategies failed
+                    error_msg = f"Failed to load page after all attempts. Last error: {str(last_error)[:200]}"
+                    Logger.error(error_msg)
+                    raise Exception(error_msg) from last_error
         else:
             page = src
 

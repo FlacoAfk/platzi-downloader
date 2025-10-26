@@ -321,24 +321,24 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
         if DEBUG_MODE:
             print(f"[DEBUG] Opening URL: {url}")
         
-        # Intentar cargar la página con reintentos
-        max_retries = 3  # Reduced to 3 for faster processing
-        retry_delay = 2  # Base delay in seconds (reduced from 5)
+        # Intentar cargar la página con reintentos y timeouts progresivos
+        max_retries = 3
+        retry_delay = 2  # Base delay in seconds
         
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    # Shorter backoff: 2s, 4s, 6s
+                    # Backoff: 2s, 4s, 6s
                     wait_time = retry_delay * attempt
                     if DEBUG_MODE:
                         print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries} after {wait_time}s wait...")
                     await asyncio.sleep(wait_time)
                 
-                # Increased timeout for Firefox headless mode
-                timeout = 60000  # 60s for all attempts (better for Firefox headless)
+                # Progressive timeout: 90s, 120s, 150s for Firefox headless stability
+                timeout = 90000 + (attempt * 30000)  # 90s, 120s, 150s
                 
-                if DEBUG_MODE and attempt > 0:
-                    print(f"[DEBUG] Using timeout: {timeout}ms")
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} - Using timeout: {timeout}ms ({timeout/1000}s)")
                 
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 
