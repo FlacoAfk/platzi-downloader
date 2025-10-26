@@ -6,7 +6,7 @@
 # https://platzi.com/cursos/python/
 # https://platzi.com/cursos/javascript-basico/
 
-https://platzi.com/ruta/diseno-desarrollo-frontend/
+# https://platzi.com/ruta/diseno-desarrollo-frontend/
 https://platzi.com/ruta/desarollo-frontend-con-javascript/
 https://platzi.com/ruta/desarrollo-c-sharp-net/
 https://platzi.com/ruta/programacion-go-rust/
