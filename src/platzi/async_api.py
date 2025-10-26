@@ -12,6 +12,7 @@ from playwright.async_api import BrowserContext, Page, async_playwright
 from rich import box, print
 from rich.live import Live
 from rich.table import Table
+from tqdm import tqdm
 
 from .collectors import (
     get_course_title,
@@ -386,6 +387,236 @@ class AsyncPlatzi:
                     # Last attempt failed
                     raise Exception(f"Failed to load page after {max_retries} attempts: {str(e)}")
 
+    async def _download_with_browser_interception(self, m3u8_url: str, output_path: Path, unit_url: str = None) -> bool:
+        """Download video by intercepting browser network requests.
+        
+        This method bypasses HTTP client detection and CORS by navigating to the actual
+        class page where the video is already playing, then intercepting the fragments.
+        
+        Args:
+            m3u8_url: URL of the m3u8 manifest (not used, kept for compatibility)
+            output_path: Path where to save the final merged video
+            unit_url: URL of the specific class/unit page where video is playing
+            
+        Returns:
+            True if download succeeded, False otherwise
+        """
+        Logger.info("🌐 Intercepting browser requests to download video...")
+        Logger.info("💡 This method works by loading the actual class page (like Stream Recorder)")
+        
+        # Create temporary directory for fragments
+        temp_dir = Path('.tmp') / f"browser_intercept_{int(time.time())}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Storage for captured fragments
+        captured_fragments = []
+        fragment_lock = asyncio.Lock()
+        fragment_urls_seen = set()  # Avoid duplicates
+        
+        try:
+            # Create new page for interception
+            page = await self._context.new_page()
+            
+            # Setup response interception to capture .ts fragments
+            async def handle_response(response):
+                try:
+                    # Capture .ts video fragments and .m3u8 playlists
+                    if (('.ts' in response.url or '.m3u8' in response.url) and 
+                        response.status == 200 and 
+                        response.url not in fragment_urls_seen):
+                        
+                        # Avoid duplicate downloads
+                        fragment_urls_seen.add(response.url)
+                        
+                        # Silently capture manifests (shown in debug mode only if needed)
+                        # Avoid logging to prevent interference with tqdm progress bar
+                        
+                        content = await response.body()
+                        
+                        # Only save .ts fragments (actual video data)
+                        if '.ts' in response.url:
+                            async with fragment_lock:
+                                fragment_index = len(captured_fragments)
+                                fragment_path = temp_dir / f"fragment_{fragment_index:05d}.ts"
+                                
+                                # Write fragment to disk immediately
+                                async with aiofiles.open(fragment_path, 'wb') as f:
+                                    await f.write(content)
+                                
+                                captured_fragments.append({
+                                    'path': fragment_path,
+                                    'index': fragment_index,
+                                    'size': len(content)
+                                })
+                                
+                                # Progress is shown by tqdm bar, no need for debug logs here
+                                pass
+                
+                except Exception as e:
+                    # Ignore errors in individual fragments to avoid stopping the capture
+                    Logger.debug(f"Error capturing fragment: {e}")
+            
+            # Attach response listener BEFORE navigation
+            page.on('response', handle_response)
+            
+            # Navigate directly to the class page where video is already playing
+            if not unit_url:
+                Logger.error("❌ No unit URL provided. Cannot load class page.")
+                return False
+                
+            Logger.info(f"🎬 Loading class page where video is playing...")
+            Logger.debug(f"Unit URL: {unit_url}")
+            
+            try:
+                # Navigate to the actual class page
+                await page.goto(unit_url, wait_until='domcontentloaded', timeout=60000)
+                Logger.debug(f"✅ Class page loaded")
+                
+                # Wait for video player to initialize and start loading
+                await asyncio.sleep(5)
+                
+                # Try to find and play the video if it's paused
+                try:
+                    await page.evaluate("""
+                        const video = document.querySelector('video');
+                        if (video) {
+                            video.muted = true;  // Mute to allow autoplay
+                            video.play().catch(e => console.log('Play failed:', e));
+                            console.log('🎬 Video playback started');
+                        } else {
+                            console.log('⚠️ No video element found');
+                        }
+                    """)
+                except Exception as play_error:
+                    Logger.debug(f"Could not start video playback: {play_error}")
+                    
+                # Wait a bit more for the video to start loading
+                await asyncio.sleep(3)
+                
+            except Exception as nav_error:
+                Logger.error(f"❌ Failed to load class page: {nav_error}")
+                return False
+            
+            Logger.info("⏳ Waiting for video fragments to load (this may take a while)...")
+            
+            # Monitor fragment collection with timeout and progress bar
+            max_wait_time = 300  # 5 minutes max
+            last_fragment_count = 0
+            no_progress_seconds = 0
+            
+            # Use tqdm progress bar similar to m3u8 download
+            # We don't know total upfront, so use unknown total (will show count)
+            bar_format = "{desc} |{bar}| {n} fragments [{elapsed}, {rate_fmt}{postfix}]"
+            with tqdm(desc="Capturing", colour='cyan', bar_format=bar_format, ascii='░█', unit=' frags') as progress_bar:
+                for second in range(max_wait_time):
+                    await asyncio.sleep(1)
+                    current_count = len(captured_fragments)
+                    
+                    # Update progress bar if we have new fragments
+                    if current_count > last_fragment_count:
+                        new_fragments = current_count - last_fragment_count
+                        total_mb = sum(f['size'] for f in captured_fragments) / 1024 / 1024
+                        progress_bar.update(new_fragments)
+                        progress_bar.set_postfix_str(f"{total_mb:.1f} MB")
+                        last_fragment_count = current_count
+                        no_progress_seconds = 0
+                    else:
+                        no_progress_seconds += 1
+                    
+                    # Stop conditions
+                    if current_count > 0 and no_progress_seconds >= 30:
+                        # No new fragments for 30 seconds - likely complete or stalled
+                        progress_bar.close()
+                        Logger.info(f"✅ No new fragments for 30s, assuming download complete")
+                        break
+                    
+                    if current_count >= 2000:
+                        # Safety limit - very long video
+                        progress_bar.close()
+                        Logger.warning(f"⚠️  Reached fragment limit (2000), stopping capture")
+                        break
+            
+            await page.close()
+            
+            # Check if we captured anything
+            if len(captured_fragments) == 0:
+                Logger.error("❌ No video fragments were captured")
+                return False
+            
+            Logger.info(f"✅ Captured {len(captured_fragments)} video fragments")
+            total_size = sum(f['size'] for f in captured_fragments) / 1024 / 1024
+            Logger.info(f"📦 Total size: {total_size:.1f} MB")
+            
+            # Merge fragments with ffmpeg
+            Logger.info("🔧 Merging fragments with ffmpeg...")
+            
+            # Create concat list file
+            concat_file = temp_dir / "concat.txt"
+            async with aiofiles.open(concat_file, 'w') as f:
+                for fragment in sorted(captured_fragments, key=lambda x: x['index']):
+                    # Use relative paths for better compatibility
+                    await f.write(f"file '{fragment['path'].name}'\n")
+            
+            # Ensure output directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Run ffmpeg to merge
+            # Use only filename since we're setting cwd to temp_dir
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', 'concat.txt',  # Just filename, not full path
+                '-c', 'copy',  # Copy without re-encoding for speed
+                '-y',  # Overwrite output
+                str(output_path.resolve())  # Use absolute path for output
+            ]
+            
+            Logger.debug(f"Running ffmpeg from directory: {temp_dir}")
+            Logger.debug(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *ffmpeg_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(temp_dir)  # Run in temp dir for relative paths
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                error_output = stderr.decode('utf-8', errors='ignore')
+                Logger.error(f"❌ FFmpeg failed: {error_output[-500:]}")
+                return False
+            
+            # Verify output file was created and has reasonable size
+            if not output_path.exists():
+                Logger.error("❌ Output file was not created")
+                return False
+            
+            final_size = output_path.stat().st_size / 1024 / 1024
+            if final_size < 0.1:  # Less than 100KB is suspicious
+                Logger.error(f"❌ Output file too small ({final_size:.1f} MB)")
+                return False
+            
+            Logger.info(f"✅ Video merged successfully ({final_size:.1f} MB)")
+            Logger.info(f"💾 Saved to: {output_path}")
+            
+            return True
+            
+        except Exception as e:
+            Logger.error(f"❌ Browser interception failed: {e}", exception=e)
+            return False
+            
+        finally:
+            # Cleanup temporary directory
+            try:
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir)
+                    Logger.debug(f"🧹 Cleaned up temporary directory: {temp_dir}")
+            except Exception as cleanup_error:
+                Logger.debug(f"Could not cleanup temp dir: {cleanup_error}")
+
     @try_except_request
     @login_required
     async def download(self, url: str, **kwargs):
@@ -650,49 +881,99 @@ class AsyncPlatzi:
                             # For Firefox: Both formats work fine, no fallback needed
                             video_downloaded = False
                             
-                            # Special handling for Chromium
-                            if self.browser_type == "chromium":
-                                # Check if primary URL is DASH without m3u8 alternative
-                                if '.mpd' in unit.video.url and not unit.video.fallback_url:
-                                    # Chromium + DASH only = guaranteed 403 error
-                                    error_msg = "Video only available in DASH format (.mpd) which is incompatible with Chromium (403 Forbidden)"
-                                    Logger.error(f"❌ {error_msg}")
-                                    Logger.error(f"💡 Solution: Use Firefox instead: platzi download {url} --browser firefox")
-                                    raise Exception(error_msg)
-                                
-                                # If we have fallback, try primary first
-                                if unit.video.fallback_url:
-                                    try:
-                                        if '.mpd' in unit.video.url:
-                                            Logger.warning(f"⚠️  Downloading DASH (.mpd) with Chromium (may fail)")
-                                            await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                        else:
-                                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                        video_downloaded = True
-                                        Logger.info(f"✅ Video downloaded successfully using primary URL")
-                                    except Exception as primary_error:
-                                        Logger.warning(f"⚠️  Primary URL failed: {str(primary_error)[:100]}")
-                                        Logger.info(f"🔄 Trying fallback URL (DASH)...")
+                            # Try standard download methods first, fallback to browser interception on HTTP 403
+                            primary_download_error = None
+                            
+                            try:
+                                # Special handling for Chromium
+                                if self.browser_type == "chromium":
+                                    # Check if primary URL is DASH without m3u8 alternative
+                                    if '.mpd' in unit.video.url and not unit.video.fallback_url:
+                                        # Chromium + DASH only = guaranteed 403 error
+                                        error_msg = "Video only available in DASH format (.mpd) which is incompatible with Chromium (403 Forbidden)"
+                                        Logger.error(f"❌ {error_msg}")
+                                        Logger.error(f"💡 Solution: Use Firefox instead: platzi download {url} --browser firefox")
+                                        raise Exception(error_msg)
+                                    
+                                    # If we have fallback, try primary first
+                                    if unit.video.fallback_url:
                                         try:
-                                            await dash_dl(unit.video.fallback_url, dst, headers=HEADERS, **kwargs)
+                                            if '.mpd' in unit.video.url:
+                                                Logger.warning(f"⚠️  Downloading DASH (.mpd) with Chromium (may fail)")
+                                                await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                            else:
+                                                await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
                                             video_downloaded = True
-                                            Logger.info(f"✅ Video downloaded successfully using fallback URL")
-                                        except Exception as fallback_error:
-                                            Logger.error(f"❌ Fallback URL also failed: {str(fallback_error)[:100]}", exception=fallback_error)
-                                            Logger.debug(f"Primary URL: {unit.video.url}")
-                                            Logger.debug(f"Fallback URL: {unit.video.fallback_url}")
-                                            raise Exception(f"Both primary and fallback download failed. Primary: {str(primary_error)[:100]}, Fallback: {str(fallback_error)[:100]}")
+                                            Logger.info(f"✅ Video downloaded successfully using primary URL")
+                                        except Exception as primary_error:
+                                            Logger.warning(f"⚠️  Primary URL failed: {str(primary_error)[:100]}")
+                                            Logger.info(f"🔄 Trying fallback URL (DASH)...")
+                                            try:
+                                                await dash_dl(unit.video.fallback_url, dst, headers=HEADERS, **kwargs)
+                                                video_downloaded = True
+                                                Logger.info(f"✅ Video downloaded successfully using fallback URL")
+                                            except Exception as fallback_error:
+                                                Logger.error(f"❌ Fallback URL also failed: {str(fallback_error)[:100]}", exception=fallback_error)
+                                                Logger.debug(f"Primary URL: {unit.video.url}")
+                                                Logger.debug(f"Fallback URL: {unit.video.fallback_url}")
+                                                # Save error for potential browser interception fallback
+                                                primary_download_error = Exception(f"Both primary and fallback download failed. Primary: {str(primary_error)[:100]}, Fallback: {str(fallback_error)[:100]}")
+                                                raise primary_download_error
+                                    else:
+                                        # Chromium without fallback but has m3u8
+                                        await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                        video_downloaded = True
                                 else:
-                                    # Chromium without fallback but has m3u8
-                                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                    # Firefox: Both formats work fine
+                                    if '.mpd' in unit.video.url:
+                                        await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                    else:
+                                        await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
                                     video_downloaded = True
-                            else:
-                                # Firefox: Both formats work fine
-                                if '.mpd' in unit.video.url:
-                                    await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                    
+                            except Exception as download_error:
+                                primary_download_error = download_error
+                                error_str = str(download_error)
+                                
+                                # Check if it's an HTTP 403 error
+                                if "403" in error_str or "HTTP 403" in error_str or "Forbidden" in error_str:
+                                    Logger.warning(f"⚠️  HTTP 403 error detected. Trying browser interception method...")
+                                    Logger.info(f"💡 This method bypasses HTTP client detection by using the browser directly")
+                                    
+                                    # Only attempt browser interception for m3u8 videos
+                                    video_url_for_interception = unit.video.url
+                                    if '.mpd' in video_url_for_interception:
+                                        # Try fallback URL if it's m3u8
+                                        if unit.video.fallback_url and '.m3u8' in unit.video.fallback_url:
+                                            Logger.info(f"🔄 Using fallback m3u8 URL for browser interception")
+                                            video_url_for_interception = unit.video.fallback_url
+                                        else:
+                                            Logger.error(f"❌ Browser interception only supports m3u8 videos, not DASH (.mpd)")
+                                            raise download_error
+                                    
+                                    try:
+                                        # Attempt browser interception download
+                                        # Pass the unit URL (class page) to load the actual video player
+                                        success = await self._download_with_browser_interception(
+                                            video_url_for_interception, 
+                                            dst,
+                                            unit_url=unit.url  # Pass unit URL to load class page with video
+                                        )
+                                        
+                                        if success:
+                                            video_downloaded = True
+                                            Logger.info(f"✅ Video downloaded successfully using browser interception!")
+                                        else:
+                                            Logger.error(f"❌ Browser interception method failed")
+                                            raise download_error
+                                            
+                                    except Exception as interception_error:
+                                        Logger.error(f"❌ Browser interception also failed: {str(interception_error)[:100]}", exception=interception_error)
+                                        # Re-raise original error
+                                        raise download_error
                                 else:
-                                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                video_downloaded = True
+                                    # Not an HTTP 403 error, re-raise original error
+                                    raise download_error
 
                             # download subtitles
                             subs = unit.video.subtitles_url
