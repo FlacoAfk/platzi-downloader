@@ -334,16 +334,17 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                         print(f"[DEBUG] Retry attempt {attempt + 1}/{max_retries} after {wait_time}s wait...")
                     await asyncio.sleep(wait_time)
                 
-                # Progressive timeout: 90s, 120s, 150s for Firefox headless stability
-                timeout = 90000 + (attempt * 30000)  # 90s, 120s, 150s
+                # Shorter timeout without wait_until - more reliable than waiting for events
+                timeout = 30000  # 30s is enough for navigation itself
                 
                 if DEBUG_MODE:
                     print(f"[DEBUG] Attempt {attempt + 1}/{max_retries} - Using timeout: {timeout}ms ({timeout/1000}s)")
                 
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                # Navigate WITHOUT wait_until - don't wait for events that may never fire
+                await page.goto(url, timeout=timeout)
                 
-                # Esperar un poco para que la página cargue
-                await asyncio.sleep(1)  # Reduced from 3s to 1s
+                # Fixed delay for JavaScript to execute (more reliable than waiting for events)
+                await asyncio.sleep(5)  # 5s fixed delay for page to stabilize
                 
                 # Verificar si es una página de error 500 con múltiples selectores
                 error_500_exists = False
@@ -376,6 +377,19 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
                 
                 if DEBUG_MODE:
                     print(f"[DEBUG] {error_type} during page load: {error_msg[:150]}")
+                
+                # If it's a timeout but page is not blank, it might have loaded enough
+                if "Timeout" in error_type:
+                    try:
+                        current_url = page.url
+                        if current_url and current_url != "about:blank" and url in current_url:
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] ⚠️  Navigation timeout but page loaded: {current_url}")
+                            # Page navigated successfully despite timeout, continue with fixed delay
+                            await asyncio.sleep(5)
+                            break  # Exit retry loop - success!
+                    except:
+                        pass
                 
                 # List of retryable errors
                 is_retryable = (
@@ -410,11 +424,11 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
         if DEBUG_MODE:
             print(f"[DEBUG] Page loaded successfully, extracting data")
 
-        # Try multiple selectors with increased timeout
+        # Try multiple selectors with short timeout (10s per selector)
         title = None
         for selector in TITLE_SELECTORS:
             try:
-                title = await page.locator(selector).first.text_content(timeout=30000)  # Increased for Firefox headless
+                title = await page.locator(selector).first.text_content(timeout=10000)  # Short timeout per selector
             except Exception:
                 continue
         
@@ -486,35 +500,21 @@ async def get_unit(context: BrowserContext, url: str, browser_type: str = "firef
             if DEBUG_MODE:
                 print(f"[DEBUG] Reloading page to capture network requests...")
             
-            # Try reload with robust error handling
+            # Reload WITHOUT wait_until - just reload and wait fixed time
             reload_success = False
-            for reload_attempt in range(2):
-                try:
-                    if reload_attempt == 0:
-                        await page.reload(wait_until="networkidle", timeout=60000)  # Increased for Firefox headless
-                    else:
-                        await page.reload(wait_until="domcontentloaded", timeout=60000)  # Increased for Firefox headless
-                    reload_success = True
-                    break
-                except Exception as reload_error:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] Reload attempt {reload_attempt + 1} failed: {str(reload_error)[:100]}")
-                    
-                    # If both reload attempts fail, try navigating to URL again
-                    if reload_attempt == 1:
-                        try:
-                            if DEBUG_MODE:
-                                print(f"[DEBUG] Reload failed, trying goto() instead...")
-                            await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # Increased for Firefox headless
-                            reload_success = True
-                        except Exception as goto_error:
-                            if DEBUG_MODE:
-                                print(f"[DEBUG] ⚠️  All reload attempts failed: {str(goto_error)[:100]}")
-                            # Continue anyway, we might have captured data before the error
-                            reload_success = False
+            try:
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Reloading without wait_until...")
+                await page.reload(timeout=20000)  # 20s timeout, no wait_until
+                reload_success = True
+            except Exception as reload_error:
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Reload failed: {str(reload_error)[:100]}")
+                # Continue anyway, we might have captured data before the error
+                reload_success = False
             
-            # VideoPlayer found, wait for video content to load
-            await asyncio.sleep(1)  # Reduced from 3s to 1s
+            # Fixed delay for network requests to be captured
+            await asyncio.sleep(3)  # 3s for video player to load and make requests
             
             try:
                 content = await page.content()

@@ -20,4 +20,3 @@ https://platzi.com/ruta/programacion-javascript/
 https://platzi.com/ruta/programacion-typescript/
 https://platzi.com/ruta/programacion-ooo-java/
 https://platzi.com/ruta/programacion-con-php/
-https://platzi.com/ruta/admin-basica-servidores-linux/

@@ -169,6 +169,9 @@ class AsyncPlatzi:
             timezone_id='America/Mexico_City',
             bypass_csp=True,
             ignore_https_errors=True,
+            extra_http_headers={
+                'Referer': 'https://platzi.com/',
+            },
         )
         
         # Set default timeout to 60 seconds for all operations (better for Firefox headless)
@@ -267,7 +270,7 @@ class AsyncPlatzi:
         Logger.info("You have to login manually, you have 2 minutes to do it")
 
         page = await self.page
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
+        await self._goto_with_retry(page, LOGIN_URL, max_retries=3)
         try:
             avatar = await page.wait_for_selector(
                 ".styles-module_Menu__Avatar__FTuh-",
@@ -372,20 +375,90 @@ class AsyncPlatzi:
             Logger.warning(f"Error copying course: {e}, will re-download", exception=e)
             return False
 
-    async def _goto_with_retry(self, page: Page, url: str, max_retries: int = 2) -> None:
-        """Navigate to URL with retry logic for better reliability."""
+    async def _goto_with_retry(self, page: Page, url: str, max_retries: int = 3) -> None:
+        """Navigate to URL with retry logic for better reliability.
+        
+        Uses a very aggressive approach: waits only for 'commit' event (earliest possible),
+        then continues immediately with fixed delays instead of waiting for full page load.
+        Uses increasing timeouts for better resilience on slow connections.
+        """
+        original_page = page
         for attempt in range(max_retries):
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
+                # Check if page is closed or context is dead
+                if page.is_closed():
+                    Logger.warning("⚠️  Page is closed, creating new page...")
+                    page = await self._context.new_page()
+                    if self.browser_type == "chromium":
+                        await self._minimize_page(page)
+                    
+                # Check if stuck on about:blank on retry - create fresh page
+                current_url = page.url
+                if attempt > 0 and current_url == "about:blank":
+                    Logger.warning("⚠️  Page stuck on about:blank, creating fresh page...")
+                    try:
+                        # Close old page and create completely fresh one
+                        if not original_page.is_closed():
+                            await page.close()
+                        page = await self._context.new_page()
+                        if self.browser_type == "chromium":
+                            await self._minimize_page(page)
+                        Logger.debug("✅ Created fresh page for retry")
+                    except Exception as page_error:
+                        Logger.debug(f"Could not create fresh page: {page_error}")
+                
+                # Use increasing timeout: 30s, 45s, 60s
+                timeout = 30000 + (attempt * 15000)
+                Logger.debug(f"Attempting navigation (timeout: {timeout}ms)...")
+                
+                # Use 'commit' wait_until - earliest navigation event possible
+                # This fires as soon as navigation is committed, before any loading
+                # Much more reliable than 'load' or 'domcontentloaded' which may never fire
+                await page.goto(url, timeout=timeout, wait_until='commit')
+                Logger.debug(f"✅ Navigation succeeded on attempt {attempt + 1}")
+                # Fixed delay for JavaScript to execute (more reliable than waiting for events)
+                await asyncio.sleep(5)
                 return  # Success
             except Exception as e:
+                error_str = str(e)
+                # If it's a timeout but page is not blank, it might have loaded enough
+                if "Timeout" in error_str:
+                    try:
+                        current_url = page.url
+                        if current_url and current_url != "about:blank" and url in current_url:
+                            Logger.warning(f"⚠️  Navigation timeout but page loaded: {current_url}")
+                            await asyncio.sleep(5)  # Fixed delay for JS to execute
+                            return  # Continue despite timeout
+                        elif current_url == "about:blank":
+                            Logger.warning(f"⚠️  Page stuck on about:blank after timeout")
+                    except:
+                        pass
+                
                 if attempt < max_retries - 1:
-                    Logger.warning(f"⚠️  Navigation failed (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
-                    Logger.info(f"🔄 Retrying in 1 second...")
-                    await asyncio.sleep(1)  # Reduced from 2s to 1s
+                    wait_time = 3 + (attempt * 2)  # Progressive backoff: 3s, 5s
+                    Logger.warning(f"⚠️  Navigation failed (attempt {attempt + 1}/{max_retries}): {error_str[:100]}")
+                    Logger.info(f"🔄 Retrying in {wait_time} seconds with longer timeout...")
+                    await asyncio.sleep(wait_time)
                 else:
-                    # Last attempt failed
-                    raise Exception(f"Failed to load page after {max_retries} attempts: {str(e)}")
+                    # Last attempt failed - check if it's a network/browser issue
+                    if page.url == "about:blank":
+                        Logger.error("❌ Page never loaded (stuck on about:blank)")
+                        Logger.error("💡 This usually indicates one of these issues:")
+                        Logger.error("   1. Network connectivity problems")
+                        Logger.error("   2. Website is blocking the browser/bot detection")
+                        Logger.error("   3. Session expired - try: --login")
+                        if self.browser_type == "firefox":
+                            Logger.error("   4. Firefox headless is often detected - try:")
+                            Logger.error("      • --no-headless (run with visible browser)")
+                            Logger.error("      • --browser chromium (Chromium is more reliable)")
+                        else:
+                            Logger.error("   4. Try: --no-headless (run with visible browser)")
+                        Logger.error("\n🔍 Recommended solutions:")
+                        Logger.error("   • Check your internet connection")
+                        Logger.error("   • Re-authenticate: platzi-downloader --login")
+                        Logger.error("   • Use Chromium: platzi-downloader --browser chromium")
+                        Logger.error("   • Use visible mode: platzi-downloader --no-headless")
+                    raise Exception(f"Failed to load page after {max_retries} attempts: {error_str}")
 
     async def _download_with_browser_interception(self, m3u8_url: str, output_path: Path, unit_url: str = None) -> bool:
         """Download video by intercepting browser network requests.
@@ -417,8 +490,12 @@ class AsyncPlatzi:
             # Create new page for interception
             page = await self._context.new_page()
             
+            # Track maximum video timestamp captured to resume after reload
+            max_captured_timestamp = 0
+            
             # Setup response interception to capture .ts fragments
             async def handle_response(response):
+                nonlocal max_captured_timestamp
                 try:
                     # Capture .ts video fragments and .m3u8 playlists
                     if (('.ts' in response.url or '.m3u8' in response.url) and 
@@ -443,11 +520,25 @@ class AsyncPlatzi:
                                 async with aiofiles.open(fragment_path, 'wb') as f:
                                     await f.write(content)
                                 
+                                # Try to extract sequence/timestamp from URL for deduplication
+                                # Example: ...media_123.ts or ...seg-45-v1-a1.ts
+                                fragment_url = response.url
+                                import re
+                                seq_match = re.search(r'(?:media[-_]|seg[-_]|frag[-_]|chunk[-_])(\d+)', fragment_url)
+                                sequence_num = int(seq_match.group(1)) if seq_match else fragment_index
+                                
                                 captured_fragments.append({
                                     'path': fragment_path,
                                     'index': fragment_index,
-                                    'size': len(content)
+                                    'size': len(content),
+                                    'url': fragment_url,
+                                    'sequence': sequence_num
                                 })
+                                
+                                # Update max captured position (approximate: sequence * 10 seconds per fragment)
+                                estimated_timestamp = sequence_num * 10
+                                if estimated_timestamp > max_captured_timestamp:
+                                    max_captured_timestamp = estimated_timestamp
                                 
                                 # Progress is shown by tqdm bar, no need for debug logs here
                                 pass
@@ -468,49 +559,210 @@ class AsyncPlatzi:
             Logger.debug(f"Unit URL: {unit_url}")
             
             try:
-                # Navigate to the actual class page
-                await page.goto(unit_url, wait_until='domcontentloaded', timeout=60000)
-                Logger.debug(f"✅ Class page loaded")
+                # Navigate to the actual class page with retry logic
+                await self._goto_with_retry(page, unit_url, max_retries=3)
                 
-                # Wait for video player to initialize and start loading
-                await asyncio.sleep(5)
+                # Try to extract duration from DOM with active waiting
+                duration_from_dom = None
+                Logger.info("⏳ Waiting for video player to load duration...")
+                max_dom_wait = 15  # Wait up to 15 seconds for DOM duration
                 
-                # Try to find and play the video if it's paused
+                for wait_attempt in range(max_dom_wait):
+                    await asyncio.sleep(1)
+                    
+                    try:
+                        duration_text = await page.evaluate("""
+                            (() => {
+                                // Try to get duration from video player display
+                                const durationDisplay = document.querySelector('.vjs-duration-display');
+                                if (durationDisplay) {
+                                    return durationDisplay.textContent.trim();
+                                }
+                                return null;
+                            })()
+                        """)
+                        
+                        if duration_text and duration_text != "0:00" and duration_text != "00:00":
+                            # Parse duration text (e.g., "10:35" -> 635 seconds)
+                            parts = duration_text.split(':')
+                            if len(parts) == 2:  # MM:SS
+                                minutes, seconds = int(parts[0]), int(parts[1])
+                                duration_from_dom = minutes * 60 + seconds
+                                if duration_from_dom > 0:  # Valid duration
+                                    Logger.info(f"📹 Video duration from DOM: {minutes}:{seconds:02d} ({duration_from_dom}s)")
+                                    break
+                            elif len(parts) == 3:  # HH:MM:SS
+                                hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
+                                duration_from_dom = hours * 3600 + minutes * 60 + seconds
+                                if duration_from_dom > 0:  # Valid duration
+                                    Logger.info(f"📹 Video duration from DOM: {hours}:{minutes:02d}:{seconds:02d} ({duration_from_dom}s)")
+                                    break
+                    except Exception as dom_error:
+                        Logger.debug(f"Error extracting duration from DOM (attempt {wait_attempt + 1}): {dom_error}")
+                        continue
+                
+                if not duration_from_dom:
+                    Logger.debug("Could not extract valid duration from DOM after 15 seconds")
+                
+                # Try to find and configure video for fast download
+                video_info = None
                 try:
-                    await page.evaluate("""
-                        const video = document.querySelector('video');
-                        if (video) {
-                            video.muted = true;  // Mute to allow autoplay
-                            video.play().catch(e => console.log('Play failed:', e));
-                            console.log('🎬 Video playback started');
-                        } else {
-                            console.log('⚠️ No video element found');
-                        }
+                    video_info = await page.evaluate("""
+                        (() => {
+                            const video = document.querySelector('video');
+                            if (video) {
+                                // Mute to allow autoplay
+                                video.muted = true;
+                                
+                                // Set playback rate to maximum (16x is usually max supported)
+                                video.playbackRate = 16.0;
+                                
+                                // Try to play
+                                video.play().catch(e => console.log('Play failed:', e));
+                                
+                                console.log('🎬 Video playback started at 16x speed');
+                                
+                                // Return video info
+                                // Check if duration is valid (not NaN or Infinity)
+                                const duration = (video.duration && isFinite(video.duration)) ? video.duration : null;
+                                
+                                return {
+                                    duration: duration,
+                                    paused: video.paused,
+                                    currentTime: video.currentTime
+                                };
+                            } else {
+                                console.log('⚠️ No video element found');
+                                return null;
+                            }
+                        })()
                     """)
+                    
+                    # If we got duration from DOM but not from video element, use DOM duration
+                    if duration_from_dom and (not video_info or not video_info.get('duration')):
+                        if video_info is None:
+                            video_info = {}
+                        video_info['duration'] = duration_from_dom
+                        Logger.info(f"✅ Using duration from DOM: {duration_from_dom}s")
+                    
+                    if video_info and video_info.get('duration') is not None:
+                        try:
+                            duration = float(video_info['duration'])
+                            # Validate that duration is a finite number (not NaN or Infinity)
+                            if duration > 0 and duration < float('inf'):
+                                duration_minutes = duration / 60
+                                Logger.info(f"📹 Video duration: {duration_minutes:.1f} minutes")
+                                Logger.info(f"⚡ Playback speed set to 16x for faster capture")
+                            else:
+                                Logger.warning(f"⚠️ Video duration is invalid: {duration}")
+                                video_info = None  # Mark as invalid to avoid using later
+                        except (ValueError, TypeError) as e:
+                            Logger.warning(f"⚠️ Could not parse video duration: {e}")
+                            video_info = None
+                    else:
+                        Logger.warning(f"⚠️ Could not get video duration")
+                        video_info = None
+                        
                 except Exception as play_error:
                     Logger.debug(f"Could not start video playback: {play_error}")
+                    Logger.info(f"💡 Will attempt to capture fragments even without video control")
+                
+                # If we don't have duration yet (neither from DOM nor video element), wait for it
+                # This ensures progress bar will work correctly
+                if video_info is None or video_info.get('duration') is None:
+                    Logger.info("⏳ Waiting for video.duration to load...")
+                    max_duration_wait = 15  # Reduced since we already waited for DOM
                     
-                # Wait a bit more for the video to start loading
-                await asyncio.sleep(3)
+                    for wait_second in range(max_duration_wait):
+                        await asyncio.sleep(1)
+                        
+                        try:
+                            check_info = await page.evaluate("""
+                                (() => {
+                                    const video = document.querySelector('video');
+                                    if (video && video.duration && isFinite(video.duration)) {
+                                        return {
+                                            duration: video.duration,
+                                            currentTime: video.currentTime,
+                                            paused: video.paused
+                                        };
+                                    }
+                                    return null;
+                                })()
+                            """)
+                            
+                            if check_info and check_info.get('duration'):
+                                duration = float(check_info['duration'])
+                                if duration > 0 and duration < float('inf'):
+                                    video_info = check_info
+                                    duration_minutes = duration / 60
+                                    Logger.info(f"✅ Video duration obtained: {duration_minutes:.1f} minutes ({duration:.0f}s)")
+                                    Logger.info(f"⚡ Playback speed set to 16x for faster capture")
+                                    break
+                        except Exception as e:
+                            Logger.debug(f"Error checking duration: {e}")
+                            continue
+                    
+                    # If still no duration after waiting, warn but continue
+                    if video_info is None or video_info.get('duration') is None:
+                        Logger.warning("⚠️ Could not obtain video duration after 30s")
+                        Logger.info("💡 Will continue without duration estimate (progress bar may not show total)")
+                else:
+                    # We already have duration, just wait a bit for fragments to start
+                    await asyncio.sleep(3)
                 
             except Exception as nav_error:
                 Logger.error(f"❌ Failed to load class page: {nav_error}")
                 return False
             
-            Logger.info("⏳ Waiting for video fragments to load (this may take a while)...")
+            # Estimate expected fragments based on video duration
+            expected_fragments = None
+            initial_video_duration = None
+            
+            if video_info and video_info.get('duration') is not None:
+                try:
+                    duration = float(video_info['duration'])
+                    if duration > 0 and duration < float('inf'):
+                        initial_video_duration = duration  # Set initial duration here
+                        # Typical fragment is 10 seconds, so duration/10 gives rough estimate
+                        expected_fragments = int(duration / 10) + 10  # Add buffer
+                        Logger.info(f"🎯 Starting capture: ~{expected_fragments} fragments expected ({duration:.0f}s video)")
+                except (ValueError, TypeError):
+                    Logger.debug("Could not estimate fragments from duration")
+                    expected_fragments = None
+            
+            if expected_fragments is None:
+                Logger.info("⏳ Starting fragment capture (unknown duration)...")
+            
+            Logger.info("💡 Video will play at 16x speed and skip ahead to load all fragments")
             
             # Monitor fragment collection with timeout and progress bar
-            max_wait_time = 300  # 5 minutes max
+            # Dynamic timeout: video_duration / 16 (playback speed) * 3 (buffer) + 120s base
+            if initial_video_duration and initial_video_duration > 0:
+                # For known duration: allow 3x the theoretical capture time + 2 min buffer
+                max_wait_time = int((initial_video_duration / 16) * 3) + 120
+                max_wait_time = max(600, min(max_wait_time, 1800))  # Between 10-30 minutes
+            else:
+                max_wait_time = 900  # 15 minutes for unknown duration
             last_fragment_count = 0
             no_progress_seconds = 0
+            seek_interval = 15  # Seek forward every 15 seconds
+            seconds_since_seek = 0
+            # initial_video_duration already set above if we have duration
+            video_ended = False
+            last_video_position = 0  # Track if video is stuck
+            video_stuck_seconds = 0  # Count how long video hasn't moved
+            last_dom_time = None  # Track DOM time display
+            reload_count = 0  # Track page reloads
+            max_reloads = 2  # Maximum page reloads allowed
             
             # Use tqdm progress bar similar to m3u8 download
-            # We don't know total upfront, so use unknown total (will show count)
             bar_format = "{desc} |{bar}| {n} fragments [{elapsed}, {rate_fmt}{postfix}]"
-            with tqdm(desc="Capturing", colour='cyan', bar_format=bar_format, ascii='░█', unit=' frags') as progress_bar:
+            with tqdm(desc="Capturing", colour='cyan', bar_format=bar_format, ascii='░█', unit=' frags', total=expected_fragments) as progress_bar:
                 for second in range(max_wait_time):
                     await asyncio.sleep(1)
                     current_count = len(captured_fragments)
+                    seconds_since_seek += 1
                     
                     # Update progress bar if we have new fragments
                     if current_count > last_fragment_count:
@@ -523,17 +775,296 @@ class AsyncPlatzi:
                     else:
                         no_progress_seconds += 1
                     
-                    # Stop conditions
-                    if current_count > 0 and no_progress_seconds >= 30:
-                        # No new fragments for 30 seconds - likely complete or stalled
-                        progress_bar.close()
-                        Logger.info(f"✅ No new fragments for 30s, assuming download complete")
+                    # Periodically seek forward to force loading more fragments
+                    if seconds_since_seek >= seek_interval:
+                        seconds_since_seek = 0
+                        try:
+                            video_state = await page.evaluate("""
+                                (() => {
+                                    const video = document.querySelector('video');
+                                    if (video) {
+                                        // If paused, play it
+                                        if (video.paused) {
+                                            video.play().catch(e => console.log('Play failed:', e));
+                                        }
+                                        
+                                        // Ensure playback rate is still at max
+                                        if (video.playbackRate < 16) {
+                                            video.playbackRate = 16.0;
+                                        }
+                                        
+                                        // Jump forward 60 seconds to force loading more fragments
+                                        // Only if duration is valid (not NaN)
+                                        if (isFinite(video.duration) && isFinite(video.currentTime)) {
+                                            // If we're near the end (last 15 seconds), pause to prevent autoplay to next class
+                                            if (video.currentTime >= video.duration - 15) {
+                                                video.pause();
+                                                console.log('⏸️ Video near end - paused to prevent next class');
+                                            } else {
+                                                const jumpTo = Math.min(video.currentTime + 60, video.duration - 15);
+                                                if (jumpTo > video.currentTime && jumpTo < video.duration) {
+                                                    video.currentTime = jumpTo;
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Get DOM time display for better stuck detection
+                                        const currentTimeDisplay = document.querySelector('.vjs-current-time-display');
+                                        const durationDisplay = document.querySelector('.vjs-duration-display');
+                                        
+                                        return {
+                                            currentTime: isFinite(video.currentTime) ? video.currentTime : null,
+                                            duration: isFinite(video.duration) ? video.duration : null,
+                                            paused: video.paused,
+                                            rate: video.playbackRate,
+                                            domCurrentTime: currentTimeDisplay ? currentTimeDisplay.textContent.trim() : null,
+                                            domDuration: durationDisplay ? durationDisplay.textContent.trim() : null
+                                        };
+                                    }
+                                    return null;
+                                })()
+                            """)
+                            
+                            if video_state:
+                                current_time = video_state.get('currentTime', 0) or 0
+                                duration = video_state.get('duration', 0) or 0
+                                rate = video_state.get('rate', 1) or 1
+                                dom_current = video_state.get('domCurrentTime')
+                                dom_duration = video_state.get('domDuration')
+                                
+                                # Only log every 60 seconds to avoid cluttering tqdm
+                                if seconds_since_seek == 0 and second % 60 == 0:
+                                    progress_bar.write(f"⏱️  Video: {current_time:.0f}s / {duration:.0f}s | Fragments: {current_count} | Size: {sum(f['size'] for f in captured_fragments) / 1024 / 1024:.1f} MB")
+                                
+                                # Track initial duration to detect class changes
+                                if initial_video_duration is None and duration > 0:
+                                    initial_video_duration = duration
+                                    Logger.debug(f"Initial video duration set to: {initial_video_duration:.0f}s")
+                                
+                                # Detect if video is stuck (not advancing) - check both DOM and video element
+                                dom_stuck = False
+                                if dom_current and dom_current == last_dom_time:
+                                    dom_stuck = True
+                                
+                                element_stuck = abs(current_time - last_video_position) < 2  # Less than 2 seconds movement
+                                
+                                if element_stuck or dom_stuck:
+                                    video_stuck_seconds += seek_interval
+                                    
+                                    # Special case: If stuck at very beginning (0-5s), reload faster
+                                    if current_time <= 5 and video_stuck_seconds >= 30 and reload_count < max_reloads:
+                                        progress_bar.write(f"🔄 Video stuck at start ({current_time:.0f}s) - reloading immediately")
+                                        try:
+                                            await page.reload(timeout=30000)
+                                            await asyncio.sleep(5)
+                                            
+                                            # Start fresh from beginning
+                                            await page.evaluate("""
+                                                (() => {
+                                                    const video = document.querySelector('video');
+                                                    if (video) {
+                                                        video.muted = true;
+                                                        video.playbackRate = 16.0;
+                                                        video.currentTime = 0;
+                                                        video.play().catch(e => console.log('Play failed:', e));
+                                                        console.log('🎬 Video restarted from beginning at 16x speed');
+                                                    }
+                                                })()
+                                            """)
+                                            
+                                            reload_count += 1
+                                            video_stuck_seconds = 0
+                                            last_video_position = 0
+                                            progress_bar.write(f"✅ Page reloaded due to start position freeze")
+                                        except Exception as e:
+                                            progress_bar.write(f"⚠️  Reload failed: {str(e)[:100]}")
+                                    
+                                    # First level: Try aggressive seek after 30s stuck (mid-video)
+                                    elif video_stuck_seconds >= 30 and video_stuck_seconds < 60 and current_time > 5:
+                                        progress_bar.write(f"⚠️  Video stuck at {current_time:.0f}s - attempting aggressive seek")
+                                        try:
+                                            if duration > 0 and current_time < duration - 60:
+                                                target = min(current_time + 120, duration - 20)  # Jump 2 minutes or near end
+                                                await page.evaluate(f"""
+                                                    (() => {{
+                                                        const video = document.querySelector('video');
+                                                        if (video) {{
+                                                            video.currentTime = {target};
+                                                            video.play().catch(e => console.log('Play failed:', e));
+                                                            console.log('⚡ Forced aggressive seek to {target}s');
+                                                        }}
+                                                    }})()
+                                                """)
+                                                progress_bar.write(f"⚡ Forced jump to {target:.0f}s to unstuck video")
+                                                video_stuck_seconds = 0
+                                        except Exception as e:
+                                            Logger.debug(f"Error in aggressive seek: {e}")
+                                    
+                                    # Second level: Reload page after 60s stuck
+                                    elif video_stuck_seconds >= 60 and reload_count < max_reloads:
+                                        progress_bar.write(f"🔄 Video stuck for 60s+ - reloading page to continue capture (reload {reload_count + 1}/{max_reloads})")
+                                        try:
+                                            # Calculate resume position based on captured fragments
+                                            resume_position = max(current_time, max_captured_timestamp)
+                                            if resume_position < 10:  # If too early, use current video time
+                                                resume_position = current_time
+                                            
+                                            progress_bar.write(f"📍 Will resume from ~{resume_position:.0f}s to avoid duplicates")
+                                            
+                                            # Reload the page to restart video
+                                            await page.reload(timeout=30000)
+                                            await asyncio.sleep(5)  # Wait for page to stabilize
+                                            
+                                            # Resume video from last position at 16x speed
+                                            await page.evaluate(f"""
+                                                (() => {{
+                                                    const video = document.querySelector('video');
+                                                    if (video) {{
+                                                        video.muted = true;
+                                                        video.playbackRate = 16.0;
+                                                        // Seek to last captured position to avoid duplicates
+                                                        video.currentTime = {resume_position};
+                                                        video.play().catch(e => console.log('Play failed:', e));
+                                                        console.log('🎬 Video resumed from {resume_position:.0f}s at 16x speed after reload');
+                                                    }}
+                                                }})()
+                                            """)
+                                            
+                                            reload_count += 1
+                                            video_stuck_seconds = 0
+                                            last_video_position = resume_position  # Update tracking
+                                            progress_bar.write(f"✅ Page reloaded, resumed from {resume_position:.0f}s")
+                                        except Exception as e:
+                                            progress_bar.write(f"⚠️  Reload failed: {str(e)[:100]}")
+                                    
+                                    # Third level: Give up after max reloads and stuck time
+                                    elif video_stuck_seconds >= 90 and reload_count >= max_reloads:
+                                        if expected_fragments and current_count >= expected_fragments * 0.85:
+                                            progress_bar.close()
+                                            Logger.warning(f"⚠️ Video permanently stuck after {reload_count} reloads")
+                                            Logger.info(f"✅ Have {current_count}/{expected_fragments} fragments (85%+) - stopping capture")
+                                            video_ended = True
+                                            break
+                                else:
+                                    video_stuck_seconds = 0  # Reset if video is moving
+                                
+                                last_dom_time = dom_current
+                                
+                                last_video_position = current_time
+                                
+                                # Detect if duration changed (Platzi loaded next class)
+                                if initial_video_duration and duration > 0:
+                                    duration_change = abs(duration - initial_video_duration)
+                                    if duration_change > 30:  # More than 30 seconds difference
+                                        progress_bar.close()
+                                        Logger.warning(f"⚠️ Video duration changed from {initial_video_duration:.0f}s to {duration:.0f}s")
+                                        Logger.info(f"🛑 Detected next class loading - stopping capture to avoid mixing videos")
+                                        video_ended = True
+                                        break
+                                
+                                # Detect if current video ended (near the end)
+                                if duration > 0 and current_time >= duration - 10:
+                                    progress_bar.close()
+                                    Logger.info(f"✅ Video reached end ({current_time:.0f}s / {duration:.0f}s)")
+                                    Logger.info(f"🛑 Stopping capture to avoid next class")
+                                    video_ended = True
+                                    break
+                                
+                        except Exception as seek_error:
+                            Logger.debug(f"Could not seek video: {seek_error}")
+                    
+                    # Break outer loop if video ended
+                    if video_ended:
                         break
                     
-                    if current_count >= 2000:
-                        # Safety limit - very long video
+                    # Stop conditions - more intelligent
+                    if current_count > 0:
+                        # Check if we likely have all fragments
+                        # IMPORTANT: Also verify video is near the end (not just fragment count)
+                        if expected_fragments and current_count >= expected_fragments * 0.95:
+                            # Got 95% of expected fragments, but verify video is also near end
+                            # Get current video state to confirm
+                            try:
+                                final_check = await page.evaluate("""
+                                    (() => {
+                                        const video = document.querySelector('video');
+                                        if (video) {
+                                            return {
+                                                currentTime: isFinite(video.currentTime) ? video.currentTime : 0,
+                                                duration: isFinite(video.duration) ? video.duration : 0
+                                            };
+                                        }
+                                        return null;
+                                    })()
+                                """)
+                                
+                                if final_check:
+                                    video_current = final_check.get('currentTime', 0) or 0
+                                    video_duration = final_check.get('duration', 0) or 0
+                                    
+                                    # Only stop if video is at least 97% complete (within last 15 seconds)
+                                    if video_duration > 0:
+                                        video_progress = video_current / video_duration
+                                        seconds_remaining = video_duration - video_current
+                                        
+                                        # Stop if very close to end (97%+ or ≤15 seconds remaining)
+                                        if video_progress >= 1 or seconds_remaining <= 15:
+                                            progress_bar.close()
+                                            Logger.info(f"✅ Captured expected fragments ({current_count}/{expected_fragments}) and video at {video_progress*100:.0f}% ({seconds_remaining:.0f}s remaining)")
+                                            break
+                                        else:
+                                            # Only log every 5 checks to avoid spam
+                                            if second % 5 == 0:
+                                                progress_bar.write(f"⏳ Fragments: {current_count}/{expected_fragments} | Video: {video_progress*100:.0f}% ({seconds_remaining:.0f}s remaining)")
+                                    else:
+                                        # No duration info, trust fragment count
+                                        progress_bar.close()
+                                        Logger.info(f"✅ Captured expected number of fragments ({current_count}/{expected_fragments})")
+                                        break
+                            except Exception as e:
+                                Logger.debug(f"Error checking final video state: {e}")
+                                # If can't check, trust the fragment count
+                                progress_bar.close()
+                                Logger.info(f"✅ Captured expected number of fragments ({current_count}/{expected_fragments})")
+                                break
+                                
+                        elif no_progress_seconds >= 60:
+                            # No new fragments for 60 seconds
+                            # But check if we have enough - don't stop if clearly incomplete
+                            if expected_fragments and current_count < expected_fragments * 0.7:
+                                # We have less than 70% of expected fragments
+                                progress_bar.write(f"⚠️  Only {current_count}/{expected_fragments} fragments ({current_count/expected_fragments*100:.0f}%) - video may be incomplete")
+                                progress_bar.write(f"⏳ Waiting longer for remaining fragments...")
+                                no_progress_seconds = 0  # Reset and keep waiting
+                                
+                                # Try to unstick the video by seeking
+                                try:
+                                    await page.evaluate("""
+                                        (() => {
+                                            const video = document.querySelector('video');
+                                            if (video && video.duration > 0) {
+                                                const jumpTo = Math.min(video.currentTime + 60, video.duration - 10);
+                                                video.currentTime = jumpTo;
+                                                video.play().catch(e => console.log('Play error:', e));
+                                                console.log('Seeking forward to load more fragments...');
+                                            }
+                                        })()
+                                    """)
+                                except:
+                                    pass
+                            else:
+                                # We have most fragments (70%+) or no expected count
+                                progress_bar.close()
+                                if expected_fragments:
+                                    Logger.info(f"✅ No new fragments for 60s with {current_count}/{expected_fragments} captured ({current_count/expected_fragments*100:.0f}%)")
+                                else:
+                                    Logger.info(f"✅ No new fragments for 60s, assuming download complete")
+                                break
+                    
+                    if current_count >= 3000:
+                        # Safety limit - very long video (increased from 2000)
                         progress_bar.close()
-                        Logger.warning(f"⚠️  Reached fragment limit (2000), stopping capture")
+                        Logger.warning(f"⚠️  Reached fragment limit (3000), stopping capture")
                         break
             
             await page.close()
@@ -546,6 +1077,18 @@ class AsyncPlatzi:
             Logger.info(f"✅ Captured {len(captured_fragments)} video fragments")
             total_size = sum(f['size'] for f in captured_fragments) / 1024 / 1024
             Logger.info(f"📦 Total size: {total_size:.1f} MB")
+            
+            # Check if capture appears complete
+            if expected_fragments:
+                completion_rate = len(captured_fragments) / expected_fragments
+                if completion_rate < 0.7:
+                    Logger.warning(f"⚠️  Video may be INCOMPLETE: {len(captured_fragments)}/{expected_fragments} fragments ({completion_rate*100:.0f}%)")
+                    Logger.warning(f"⚠️  Expected ~{expected_fragments} fragments but only captured {len(captured_fragments)}")
+                    Logger.warning(f"💡 The video might have gotten stuck. You may need to re-download this unit.")
+                elif completion_rate < 0.9:
+                    Logger.warning(f"⚠️  Video might be slightly incomplete: {len(captured_fragments)}/{expected_fragments} fragments ({completion_rate*100:.0f}%)")
+                else:
+                    Logger.info(f"✅ Capture appears complete: {len(captured_fragments)}/{expected_fragments} fragments ({completion_rate*100:.0f}%)")
             
             # Merge fragments with ffmpeg
             Logger.info("🔧 Merging fragments with ffmpeg...")
@@ -617,9 +1160,62 @@ class AsyncPlatzi:
             except Exception as cleanup_error:
                 Logger.debug(f"Could not cleanup temp dir: {cleanup_error}")
 
+    async def _validate_session(self) -> bool:
+        """Check if the current session is still valid."""
+        try:
+            # If we're marked as logged in and have cookies, assume session is valid
+            # The _set_profile() method already validated authentication
+            if self.loggedin and self.user and self.user.is_authenticated:
+                Logger.debug("Session valid: User is authenticated")
+                return True
+            
+            cookies = await self._context.cookies()
+            if not cookies:
+                Logger.debug("Session invalid: No cookies found")
+                return False
+            
+            # Quick check: try to load a simple API endpoint
+            try:
+                test_page = await self._context.new_page()
+                try:
+                    # Try to access user profile API - more reliable than DOM selectors
+                    await test_page.goto(LOGIN_DETAILS_URL, timeout=15000, wait_until='commit')
+                    await asyncio.sleep(1)
+                    
+                    # Check if we got valid JSON (not redirect to login)
+                    content = await test_page.content()
+                    # If we see actual user data, we're logged in
+                    is_logged_in = '"is_authenticated":true' in content or '"isAuthenticated":true' in content
+                    
+                    await test_page.close()
+                    Logger.debug(f"Session validation result: {is_logged_in}")
+                    return is_logged_in
+                except Exception as e:
+                    Logger.debug(f"Session validation error: {e}")
+                    if not test_page.is_closed():
+                        await test_page.close()
+                    return False
+            except Exception as e:
+                Logger.debug(f"Could not create test page: {e}")
+                # If we can't test but user object exists, assume valid
+                return self.loggedin and self.user is not None
+        except Exception as e:
+            Logger.debug(f"Session validation exception: {e}")
+            return False
+    
     @try_except_request
     @login_required
     async def download(self, url: str, **kwargs):
+        # Validate session only on first download (not for every URL in batch)
+        if not hasattr(self, '_session_validated'):
+            Logger.debug("Validating session...")
+            if not await self._validate_session():
+                Logger.error("❌ Session expired or invalid!")
+                Logger.error("💡 Please run with --login to authenticate again")
+                raise Exception("Session expired. Please login again with --login flag")
+            self._session_validated = True
+            Logger.debug("✅ Session is valid")
+        
         # Start progress tracking session
         self.progress.start_session()
         
@@ -1247,44 +1843,8 @@ class AsyncPlatzi:
 
         if isinstance(src, str):
             page = await self.page
-            # Try progressive loading strategies with increasing timeouts
-            loaded = False
-            last_error = None
-            
-            # Strategy 1: domcontentloaded (fastest, 90s timeout)
-            try:
-                Logger.debug("Attempting page load with domcontentloaded...")
-                await page.goto(src, wait_until="domcontentloaded", timeout=90000)
-                loaded = True
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                except Exception:
-                    pass  # networkidle is optional
-            except Exception as e1:
-                last_error = e1
-                Logger.debug(f"domcontentloaded failed: {str(e1)[:100]}")
-            
-            # Strategy 2: load (slower but more complete, 120s timeout)
-            if not loaded:
-                try:
-                    Logger.debug("Retrying with load state (may take longer)...")
-                    await page.goto(src, wait_until="load", timeout=120000)
-                    loaded = True
-                except Exception as e2:
-                    last_error = e2
-                    Logger.debug(f"load failed: {str(e2)[:100]}")
-            
-            # Strategy 3: commit (most lenient, 150s timeout)
-            if not loaded:
-                try:
-                    Logger.debug("Final attempt with commit state...")
-                    await page.goto(src, wait_until="commit", timeout=150000)
-                    loaded = True
-                except Exception as e3:
-                    # All strategies failed
-                    error_msg = f"Failed to load page after all attempts. Last error: {str(last_error)[:200]}"
-                    Logger.error(error_msg)
-                    raise Exception(error_msg) from last_error
+            # Navigate with retry logic for better reliability
+            await self._goto_with_retry(page, src, max_retries=3)
         else:
             page = src
 
@@ -1789,7 +2349,7 @@ class AsyncPlatzi:
     @try_except_request
     async def get_json(self, url: str) -> dict:
         page = await self.page
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # 60s for Firefox headless
+        await self._goto_with_retry(page, url, max_retries=3)
         content = await page.locator("pre").first.text_content()
         await page.close()
         return json.loads(content or "{}")

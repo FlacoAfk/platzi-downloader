@@ -448,6 +448,13 @@ async def _batch_download(file_path: str, **kwargs):
                     Cache.clear()
                     print("[green]🗑️  Cache cleared[/green]")
                 
+                # Add delay between downloads to avoid rate limiting
+                if idx < len(urls):  # Don't delay after last item
+                    import asyncio
+                    delay = 3  # 3 second delay between downloads
+                    print(f"[cyan]⏳ Waiting {delay} seconds before next download...[/cyan]")
+                    await asyncio.sleep(delay)
+                
             except Exception as e:
                 failed += 1
                 failed_urls.append((url, str(e)))
