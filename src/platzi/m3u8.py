@@ -100,6 +100,12 @@ async def _ts_dl(url: str, path: Path, **kwargs):
     try:
         client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
         # Firefox headless requires longer timeout for .ts fragments (120s)
+        # Merge Referer header with existing headers from kwargs
+        headers = kwargs.get("headers", {})
+        # Only set Referer if not already provided
+        if "Referer" not in headers:
+            headers["Referer"] = "https://platzi.com/"
+        kwargs["headers"] = headers
         response: rnet.Response = await client.get(url, timeout=120, **kwargs)
 
         try:
@@ -194,11 +200,19 @@ async def _m3u8_dl(
 
     client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
     # Firefox headless requires longer timeout (60s)
+    # Merge Referer header with existing headers from kwargs
+    headers = kwargs.get("headers", {})
+    # Only set Referer if not already provided
+    if "Referer" not in headers:
+        headers["Referer"] = "https://platzi.com/"
+    kwargs["headers"] = headers
     response: rnet.Response = await client.get(url, timeout=60, **kwargs)
 
     try:
         if not response.ok:
-            raise Exception(f"Error downloading m3u8: HTTP {response.status_code}")
+            http_code = response.status_code
+            Logger.debug(f"M3U8 manifest request failed: HTTP {http_code} for {url}")
+            raise Exception(f"HTTP {http_code}: Error downloading m3u8 manifest")
 
         ts_urls = _extract_streaming_urls(await response.text())
 
@@ -210,13 +224,21 @@ async def _m3u8_dl(
         await _worker_ts_dl(ts_urls, dir, **kwargs)
 
     except Exception as e:
+        error_msg = str(e)
         # Don't wrap the error if it already has detailed context
-        if "[" in str(e) and "]" in str(e):
+        if "[" in error_msg and "]" in error_msg:
             Logger.debug(f"M3U8 download failed for URL: {url}")
             Logger.debug(f"Number of fragments: {len(ts_urls) if 'ts_urls' in locals() else 'unknown'}")
             raise  # Already has detailed context from lower levels
-        Logger.debug(f"M3U8 download error: {url}")
-        raise Exception(f"Error downloading m3u8: {str(e)}")
+        
+        # Log full error with context
+        Logger.debug(f"M3U8 download error: {error_msg}")
+        Logger.debug(f"Failed URL: {url}")
+        
+        # Preserve HTTP error codes in the exception message
+        if "HTTP" in error_msg:
+            raise  # Already has HTTP code, don't wrap
+        raise Exception(f"Error downloading m3u8: {error_msg}")
 
     finally:
         await response.close()
@@ -289,11 +311,19 @@ async def m3u8_dl(
 
     client = rnet.Client(impersonate=rnet.Impersonate.Firefox139)
     # Firefox headless requires longer timeout (60s)
+    # Merge Referer header with existing headers from kwargs
+    headers = kwargs.get("headers", {})
+    # Only set Referer if not already provided
+    if "Referer" not in headers:
+        headers["Referer"] = "https://platzi.com/"
+    kwargs["headers"] = headers
     response: rnet.Response = await client.get(url, timeout=60, **kwargs)
 
     try:
         if not response.ok:
-            raise Exception(f"Error downloading m3u8 manifest: HTTP {response.status_code}")
+            http_code = response.status_code
+            Logger.debug(f"M3U8 quality manifest request failed: HTTP {http_code} for {url}")
+            raise Exception(f"HTTP {http_code}: Error downloading m3u8 quality manifest")
 
         m3u8_urls = _extract_streaming_urls(await response.text())  # The .m3u8 link contains the video resolutions
 
@@ -302,16 +332,25 @@ async def m3u8_dl(
 
         # Use the requested quality index if available, otherwise use the last available resolution
         quality_index = min(int(quality), len(m3u8_urls) - 1)
+        Logger.debug(f"Attempting to download quality index {quality_index} from {len(m3u8_urls)} available resolutions")
         await _m3u8_dl(m3u8_urls[quality_index], path, **kwargs)  # Here goes the video resolution [0]=1280; [1]=1920
 
     except Exception as e:
+        error_msg = str(e)
         # Don't wrap the error if it already has detailed context
-        if "[" in str(e) and "]" in str(e):
+        if "[" in error_msg and "]" in error_msg:
             Logger.debug(f"M3U8 download failed for URL: {url}")
             Logger.debug(f"Available quality URLs: {len(m3u8_urls) if 'm3u8_urls' in locals() else 'unknown'}")
             raise  # Already has detailed context from lower levels
-        Logger.debug(f"M3U8 download error: {url}")
-        raise Exception(f"Error downloading m3u8: {str(e)}")
+        
+        # Log full error with context
+        Logger.debug(f"M3U8 download error: {error_msg}")
+        Logger.debug(f"Failed URL: {url}")
+        
+        # Preserve HTTP error codes in the exception message
+        if "HTTP" in error_msg:
+            raise  # Already has HTTP code, don't wrap
+        raise Exception(f"Error downloading m3u8: {error_msg}")
 
     finally:
         await response.close()

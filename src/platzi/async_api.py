@@ -614,13 +614,13 @@ class AsyncPlatzi:
                                 // Mute to allow autoplay
                                 video.muted = true;
                                 
-                                // Set playback rate to maximum (16x is usually max supported)
-                                video.playbackRate = 16.0;
+                                // Set playback rate to 4x (balanced speed and accuracy)
+                                video.playbackRate = 4.0;
                                 
                                 // Try to play
                                 video.play().catch(e => console.log('Play failed:', e));
                                 
-                                console.log('🎬 Video playback started at 16x speed');
+                                console.log('🎬 Video playback started at 4x speed');
                                 
                                 // Return video info
                                 // Check if duration is valid (not NaN or Infinity)
@@ -652,7 +652,7 @@ class AsyncPlatzi:
                             if duration > 0 and duration < float('inf'):
                                 duration_minutes = duration / 60
                                 Logger.info(f"📹 Video duration: {duration_minutes:.1f} minutes")
-                                Logger.info(f"⚡ Playback speed set to 16x for faster capture")
+                                Logger.info(f"⚡ Playback speed set to 4x for accurate capture")
                             else:
                                 Logger.warning(f"⚠️ Video duration is invalid: {duration}")
                                 video_info = None  # Mark as invalid to avoid using later
@@ -697,7 +697,7 @@ class AsyncPlatzi:
                                     video_info = check_info
                                     duration_minutes = duration / 60
                                     Logger.info(f"✅ Video duration obtained: {duration_minutes:.1f} minutes ({duration:.0f}s)")
-                                    Logger.info(f"⚡ Playback speed set to 16x for faster capture")
+                                    Logger.info(f"⚡ Playback speed set to 4x for accurate capture")
                                     break
                         except Exception as e:
                             Logger.debug(f"Error checking duration: {e}")
@@ -734,13 +734,13 @@ class AsyncPlatzi:
             if expected_fragments is None:
                 Logger.info("⏳ Starting fragment capture (unknown duration)...")
             
-            Logger.info("💡 Video will play at 16x speed and skip ahead to load all fragments")
+            Logger.info("💡 Video will play at 4x speed and skip ahead to load all fragments")
             
             # Monitor fragment collection with timeout and progress bar
-            # Dynamic timeout: video_duration / 16 (playback speed) * 3 (buffer) + 120s base
+            # Dynamic timeout: video_duration / 4 (playback speed) * 3 (buffer) + 120s base
             if initial_video_duration and initial_video_duration > 0:
                 # For known duration: allow 3x the theoretical capture time + 2 min buffer
-                max_wait_time = int((initial_video_duration / 16) * 3) + 120
+                max_wait_time = int((initial_video_duration / 4) * 3) + 120
                 max_wait_time = max(600, min(max_wait_time, 1800))  # Between 10-30 minutes
             else:
                 max_wait_time = 900  # 15 minutes for unknown duration
@@ -788,9 +788,9 @@ class AsyncPlatzi:
                                             video.play().catch(e => console.log('Play failed:', e));
                                         }
                                         
-                                        // Ensure playback rate is still at max
-                                        if (video.playbackRate < 16) {
-                                            video.playbackRate = 16.0;
+                                        // Ensure playback rate is still at 4x
+                                        if (video.playbackRate < 4) {
+                                            video.playbackRate = 4.0;
                                         }
                                         
                                         // Jump forward 60 seconds to force loading more fragments
@@ -864,10 +864,10 @@ class AsyncPlatzi:
                                                     const video = document.querySelector('video');
                                                     if (video) {
                                                         video.muted = true;
-                                                        video.playbackRate = 16.0;
+                                                        video.playbackRate = 4.0;
                                                         video.currentTime = 0;
                                                         video.play().catch(e => console.log('Play failed:', e));
-                                                        console.log('🎬 Video restarted from beginning at 16x speed');
+                                                        console.log('🎬 Video restarted from beginning at 4x speed');
                                                     }
                                                 })()
                                             """)
@@ -915,17 +915,17 @@ class AsyncPlatzi:
                                             await page.reload(timeout=30000)
                                             await asyncio.sleep(5)  # Wait for page to stabilize
                                             
-                                            # Resume video from last position at 16x speed
+                                            # Resume video from last position at 4x speed
                                             await page.evaluate(f"""
                                                 (() => {{
                                                     const video = document.querySelector('video');
                                                     if (video) {{
                                                         video.muted = true;
-                                                        video.playbackRate = 16.0;
+                                                        video.playbackRate = 4.0;
                                                         // Seek to last captured position to avoid duplicates
                                                         video.currentTime = {resume_position};
                                                         video.play().catch(e => console.log('Play failed:', e));
-                                                        console.log('🎬 Video resumed from {resume_position:.0f}s at 16x speed after reload');
+                                                        console.log('🎬 Video resumed from {resume_position:.0f}s at 4x speed after reload');
                                                     }}
                                                 }})()
                                             """)
@@ -1473,6 +1473,27 @@ class AsyncPlatzi:
                             dst = CHAP_DIR / f"{file_name}.mp4"
                             Logger.print(f"[{dst.name}]", "[DOWNLOADING-VIDEO]")
                             
+                            # Get cookies from browser context for authentication
+                            cookies = await self.context.cookies()
+                            cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+                            
+                            # Build headers with cookies and proper referer
+                            # Use the unit URL as referer (full course page URL)
+                            HEADERS = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
+                                "Accept": "*/*",
+                                "Accept-Language": "en-US,en;q=0.5",
+                                "Accept-Encoding": "gzip, deflate, br, zstd",
+                                "Origin": "https://platzi.com",
+                                "Connection": "keep-alive",
+                                "Sec-Fetch-Dest": "empty",
+                                "Sec-Fetch-Mode": "cors",
+                                "Sec-Fetch-Site": "same-site",
+                                "Referer": unit.url,  # Full course URL as referer
+                                "Cookie": cookie_str
+                            }
+                            Logger.debug(f"Using {len(cookies)} cookies for authentication")
+                            
                             # For Chromium: Try primary URL (m3u8 preferred), fallback to DASH if needed
                             # For Firefox: Both formats work fine, no fallback needed
                             video_downloaded = False
@@ -1498,9 +1519,28 @@ class AsyncPlatzi:
                                                 Logger.warning(f"⚠️  Downloading DASH (.mpd) with Chromium (may fail)")
                                                 await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
                                             else:
-                                                await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                            video_downloaded = True
-                                            Logger.info(f"✅ Video downloaded successfully using primary URL")
+                                                try:
+                                                    await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                                    video_downloaded = True
+                                                    Logger.info(f"✅ Video downloaded successfully using primary URL")
+                                                except Exception as m3u8_error:
+                                                    error_str = str(m3u8_error)
+                                                    # Check if it's HTTP 403 - immediately try browser interception
+                                                    if "403" in error_str or "HTTP 403" in error_str or "Forbidden" in error_str:
+                                                        Logger.warning(f"⚠️  HTTP 403 in m3u8. Trying browser interception...")
+                                                        Logger.info(f"💡 This bypasses HTTP client detection by using the browser")
+                                                        success = await self._download_with_browser_interception(
+                                                            unit.video.url, 
+                                                            dst,
+                                                            unit_url=unit.url
+                                                        )
+                                                        if success:
+                                                            video_downloaded = True
+                                                            Logger.info(f"✅ Video downloaded with browser interception!")
+                                                        else:
+                                                            raise m3u8_error
+                                                    else:
+                                                        raise m3u8_error
                                         except Exception as primary_error:
                                             Logger.warning(f"⚠️  Primary URL failed: {str(primary_error)[:100]}")
                                             Logger.info(f"🔄 Trying fallback URL (DASH)...")
@@ -1517,15 +1557,53 @@ class AsyncPlatzi:
                                                 raise primary_download_error
                                     else:
                                         # Chromium without fallback but has m3u8
-                                        await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                        video_downloaded = True
+                                        try:
+                                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                            video_downloaded = True
+                                        except Exception as m3u8_error:
+                                            error_str = str(m3u8_error)
+                                            # Check if it's HTTP 403 - immediately try browser interception
+                                            if "403" in error_str or "HTTP 403" in error_str or "Forbidden" in error_str:
+                                                Logger.warning(f"⚠️  HTTP 403 in m3u8. Trying browser interception...")
+                                                Logger.info(f"💡 This bypasses HTTP client detection using the browser")
+                                                success = await self._download_with_browser_interception(
+                                                    unit.video.url, 
+                                                    dst,
+                                                    unit_url=unit.url
+                                                )
+                                                if success:
+                                                    video_downloaded = True
+                                                    Logger.info(f"✅ Video downloaded with browser interception!")
+                                                else:
+                                                    raise m3u8_error
+                                            else:
+                                                raise m3u8_error
                                 else:
                                     # Firefox: Both formats work fine
                                     if '.mpd' in unit.video.url:
                                         await dash_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
                                     else:
-                                        await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
-                                    video_downloaded = True
+                                        try:
+                                            await m3u8_dl(unit.video.url, dst, headers=HEADERS, **kwargs)
+                                            video_downloaded = True
+                                        except Exception as m3u8_error:
+                                            error_str = str(m3u8_error)
+                                            # Check if it's HTTP 403 - immediately try browser interception
+                                            if "403" in error_str or "HTTP 403" in error_str or "Forbidden" in error_str:
+                                                Logger.warning(f"⚠️  HTTP 403 error in m3u8 download. Trying browser interception method...")
+                                                Logger.info(f"💡 This method bypasses HTTP client detection by using the browser directly")
+                                                success = await self._download_with_browser_interception(
+                                                    unit.video.url, 
+                                                    dst,
+                                                    unit_url=unit.url  # Pass unit URL to load class page with video
+                                                )
+                                                if success:
+                                                    video_downloaded = True
+                                                    Logger.info(f"✅ Video downloaded successfully using browser interception!")
+                                                else:
+                                                    raise m3u8_error
+                                            else:
+                                                raise m3u8_error
                                     
                             except Exception as download_error:
                                 primary_download_error = download_error
