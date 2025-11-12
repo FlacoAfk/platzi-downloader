@@ -1,0 +1,427 @@
+{
+  "started_at": "2025-10-29T00:16:44.871772",
+  "last_updated": "2025-11-09T14:34:54.616822",
+  "learning_paths": {},
+  "courses": {
+    "/cursos/fundamentos-python/": {
+      "title": "Curso de Fundamentos de Python",
+      "status": "completed",
+      "learning_path_ids": [
+        "/ruta/programacion-python/"
+      ],
+      "started_at": "2025-10-31T15:43:07.809828",
+      "completed_at": "2025-10-31T16:18:30.638765",
+      "error": null,
+      "units": {
+        "/cursos/fundamentos-python/fundamentos-de-python-variables-booleano/": {
+          "title": "Fundamentos de Python: variables, booleanos, if/else y bucles",
+          "status": "completed",
+          "started_at": "2025-10-31T15:43:17.964080",
+          "completed_at": "2025-10-31T15:43:43.380782",
+          "error": null
+        },
+        "/cursos/fundamentos-python/instalacion-de-python-vs-code-y-git-en-w/": {
+          "title": "Instalación de Python, VS Code y Git en Windows",
+          "status": "completed",
+          "started_at": "2025-10-31T15:43:44.915000",
+          "completed_at": "2025-10-31T15:44:27.276412",
+          "error": null
+        },
+        "/cursos/fundamentos-python/configuracion-de-variables-de-entorno-pa/": {
+          "title": "Configuración de variables de entorno para Python en Windows",
+          "status": "completed",
+          "started_at": "2025-10-31T15:44:28.801973",
+          "completed_at": "2025-10-31T15:44:53.317489",
+          "error": null
+        },
+        "/cursos/fundamentos-python/comandos-basicos-de-python-en-la-termina/": {
+          "title": "Comandos básicos de Python en la terminal de Windows",
+          "status": "completed",
+          "started_at": "2025-10-31T15:44:54.839012",
+          "completed_at": "2025-10-31T15:45:32.433488",
+          "error": null
+        },
+        "/cursos/fundamentos-python/sintaxis-e-indentacion-basica-en-python/": {
+          "title": "Sintaxis e indentación básica en Python con Visual Studio Code",
+          "status": "completed",
+          "started_at": "2025-10-31T15:45:33.957049",
+          "completed_at": "2025-10-31T15:46:29.803051",
+          "error": null
+        },
+        "/cursos/fundamentos-python/comentarios-en-python-lineas-simples-y-m/": {
+          "title": "Comentarios en Python: líneas simples y multilínea",
+          "status": "completed",
+          "started_at": "2025-10-31T15:46:31.324070",
+          "completed_at": "2025-10-31T15:47:07.331966",
+          "error": null
+        },
+        "/cursos/fundamentos-python/variables-en-python-asignacion-nomenclat/": {
+          "title": "Variables en Python: asignación, nomenclatura y convenciones",
+          "status": "completed",
+          "started_at": "2025-10-31T15:47:08.863845",
+          "completed_at": "2025-10-31T15:48:03.877423",
+          "error": null
+        },
+        "/cursos/fundamentos-python/asignacion-multiple-de-variables-en-pyth/": {
+          "title": "Asignación múltiple de variables en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:48:05.413993",
+          "completed_at": "2025-10-31T15:48:41.304182",
+          "error": null
+        },
+        "/cursos/fundamentos-python/tipos-de-datos-en-python-strings-numeros/": {
+          "title": "Tipos de datos en Python: strings, números y colecciones",
+          "status": "completed",
+          "started_at": "2025-10-31T15:48:42.828081",
+          "completed_at": "2025-10-31T15:49:57.309987",
+          "error": null
+        },
+        "/cursos/fundamentos-python/manipulacion-y-conversion-de-tipos-numer/": {
+          "title": "Manipulación y conversión de tipos numéricos en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:49:58.842646",
+          "completed_at": "2025-10-31T15:50:53.403267",
+          "error": null
+        },
+        "/cursos/fundamentos-python/manejo-de-comillas-multiples-lineas-y-bu/": {
+          "title": "Manejo de comillas, múltiples líneas y búsqueda en strings de Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:50:54.932960",
+          "completed_at": "2025-10-31T15:52:14.398658",
+          "error": null
+        },
+        "/cursos/fundamentos-python/slicing-replace-y-split-para-manipular-s/": {
+          "title": "Slicing, replace y split para manipular strings en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:52:15.920123",
+          "completed_at": "2025-10-31T15:53:21.734634",
+          "error": null
+        },
+        "/cursos/fundamentos-python/booleanos-en-python-true-false-y-casting/": {
+          "title": "Booleanos en Python: True, False y casting a bool",
+          "status": "completed",
+          "started_at": "2025-10-31T15:53:23.263045",
+          "completed_at": "2025-10-31T15:54:03.345244",
+          "error": null
+        },
+        "/cursos/fundamentos-python/tipo-de-dato-none-en-python/": {
+          "title": "Tipo de dato None en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:54:04.872746",
+          "completed_at": "2025-10-31T15:54:31.049661",
+          "error": null
+        },
+        "/cursos/fundamentos-python/operadores-aritmeticos-en-python-suma-re/": {
+          "title": "Operadores aritméticos en Python: suma, resta, módulo y precedencia",
+          "status": "completed",
+          "started_at": "2025-10-31T15:54:32.616659",
+          "completed_at": "2025-10-31T15:55:45.808787",
+          "error": null
+        },
+        "/cursos/fundamentos-python/operadores-de-asignacion-y-walrus-en-pyt/": {
+          "title": "Operadores de asignación y walrus en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:55:47.335005",
+          "completed_at": "2025-10-31T15:56:42.960265",
+          "error": null
+        },
+        "/cursos/fundamentos-python/operadores-logicos-or-y-not-con-booleano/": {
+          "title": "Operadores lógicos OR y NOT con booleanos en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T15:56:44.496136",
+          "completed_at": "2025-10-31T15:57:39.183651",
+          "error": null
+        },
+        "/cursos/fundamentos-python/condicionales-en-python-if-else-and-or-y/": {
+          "title": "Condicionales en Python: if, else, and, or y pass",
+          "status": "completed",
+          "started_at": "2025-10-31T15:57:40.706431",
+          "completed_at": "2025-10-31T15:59:04.884529",
+          "error": null
+        },
+        "/cursos/fundamentos-python/sentencia-match-en-python-3-10-para-cont/": {
+          "title": "Sentencia match en Python 3.10 para control de flujo",
+          "status": "completed",
+          "started_at": "2025-10-31T15:59:06.415089",
+          "completed_at": "2025-10-31T15:59:49.953816",
+          "error": null
+        },
+        "/cursos/fundamentos-python/bucles-while-en-python-condiciones-break/": {
+          "title": "Bucles while en Python: condiciones, break y continue",
+          "status": "completed",
+          "started_at": "2025-10-31T15:59:51.486715",
+          "completed_at": "2025-10-31T16:00:59.528214",
+          "error": null
+        },
+        "/cursos/fundamentos-python/bucles-for-en-python-recorrido-de-secuen/": {
+          "title": "Bucles for en Python: recorrido de secuencias y listas",
+          "status": "completed",
+          "started_at": "2025-10-31T16:01:01.051639",
+          "completed_at": "2025-10-31T16:02:35.566468",
+          "error": null
+        },
+        "/cursos/fundamentos-python/listas-en-python-creacion-modificacion-y/": {
+          "title": "Listas en Python: creación, modificación y métodos esenciales",
+          "status": "completed",
+          "started_at": "2025-10-31T16:02:37.134393",
+          "completed_at": "2025-10-31T16:04:06.240883",
+          "error": null
+        },
+        "/cursos/fundamentos-python/tuplas-en-python-ordenadas-inmutables-y/": {
+          "title": "Tuplas en Python: ordenadas, inmutables y con duplicados",
+          "status": "completed",
+          "started_at": "2025-10-31T16:04:07.761935",
+          "completed_at": "2025-10-31T16:05:30.618704",
+          "error": null
+        },
+        "/cursos/fundamentos-python/conjuntos-en-python-creacion-metodos-y-o/": {
+          "title": "Conjuntos en Python: creación, métodos y operaciones básicas",
+          "status": "completed",
+          "started_at": "2025-10-31T16:05:32.150611",
+          "completed_at": "2025-10-31T16:07:39.562751",
+          "error": null
+        },
+        "/cursos/fundamentos-python/diccionarios-en-python-pares-clave-valor/": {
+          "title": "Diccionarios en Python: pares clave-valor ordenados y anidados",
+          "status": "completed",
+          "started_at": "2025-10-31T16:07:41.094860",
+          "completed_at": "2025-10-31T16:09:55.284082",
+          "error": null
+        },
+        "/cursos/fundamentos-python/definicion-y-uso-de-funciones-en-python/": {
+          "title": "Definición y uso de funciones en Python con argumentos y return",
+          "status": "completed",
+          "started_at": "2025-10-31T16:09:56.858955",
+          "completed_at": "2025-10-31T16:11:26.583319",
+          "error": null
+        },
+        "/cursos/fundamentos-python/funciones-lambda-y-fabrica-de-funciones/": {
+          "title": "Funciones lambda y fábrica de funciones en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T16:11:28.108595",
+          "completed_at": "2025-10-31T16:12:17.360308",
+          "error": null
+        },
+        "/cursos/fundamentos-python/modulos-en-python-organizar-codigo-en-mu/": {
+          "title": "Módulos en Python: organizar código en múltiples archivos",
+          "status": "completed",
+          "started_at": "2025-10-31T16:12:18.889881",
+          "completed_at": "2025-10-31T16:12:55.592386",
+          "error": null
+        },
+        "/cursos/fundamentos-python/manejo-de-errores-con-try-except-y-final/": {
+          "title": "Manejo de errores con try, except y finally en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T16:12:57.168765",
+          "completed_at": "2025-10-31T16:13:39.242403",
+          "error": null
+        },
+        "/cursos/fundamentos-python/lectura-y-escritura-de-archivos-de-texto/": {
+          "title": "Lectura y escritura de archivos de texto en Python",
+          "status": "completed",
+          "started_at": "2025-10-31T16:13:40.771973",
+          "completed_at": "2025-10-31T16:15:26.156507",
+          "error": null
+        },
+        "/cursos/fundamentos-python/maquina-de-cafe-en-python-con-menu-inter/": {
+          "title": "Máquina de café en Python con menú interactivo por terminal",
+          "status": "completed",
+          "started_at": "2025-10-31T16:15:27.729140",
+          "completed_at": "2025-10-31T16:16:39.070317",
+          "error": null
+        },
+        "/cursos/fundamentos-python/escritura-y-lectura-de-archivos-en-pytho/": {
+          "title": "Escritura y lectura de archivos en Python con proyecto de cafetería",
+          "status": "completed",
+          "started_at": "2025-10-31T16:16:40.602073",
+          "completed_at": "2025-10-31T16:18:30.618374",
+          "error": null
+        }
+      }
+    },
+    "/cursos/claude-code": {
+      "title": "Curso de Claude Code",
+      "status": "in_progress",
+      "learning_path_ids": [],
+      "started_at": "2025-11-09T14:18:18.635368",
+      "completed_at": null,
+      "error": null,
+      "units": {
+        "/cursos/claude-code/desarrollo-conversacional-con-claude-cod/": {
+          "title": "Desarrollo conversacional con Claude Code para proyectos reales",
+          "status": "completed",
+          "started_at": "2025-11-09T14:18:27.349450",
+          "completed_at": "2025-11-09T14:18:49.736144",
+          "error": null
+        },
+        "/cursos/claude-code/flujo-profesional-para-desarrollar-featu/": {
+          "title": "Flujo profesional para desarrollar features con Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:18:51.271537",
+          "completed_at": "2025-11-09T14:19:14.915075",
+          "error": null
+        },
+        "/cursos/claude-code/instalacion-y-configuracion-basica-de-cl/": {
+          "title": "Instalación y configuración básica de Claude Code con npm",
+          "status": "completed",
+          "started_at": "2025-11-09T14:19:16.460369",
+          "completed_at": "2025-11-09T14:20:00.944777",
+          "error": null
+        },
+        "/cursos/claude-code/fundamentos-de-claude-code-contexto-suba/": {
+          "title": "Fundamentos de Claude Code: contexto, subagentes y herramientas",
+          "status": "completed",
+          "started_at": "2025-11-09T14:20:02.497207",
+          "completed_at": "2025-11-09T14:20:36.551834",
+          "error": null
+        },
+        "/cursos/claude-code/analisis-de-arquitectura-full-stack-con/": {
+          "title": "Análisis de arquitectura full stack con Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:20:38.100027",
+          "completed_at": "2025-11-09T14:21:47.488477",
+          "error": null
+        },
+        "/cursos/claude-code/analisis-de-impacto-del-feature-de-ratin/": {
+          "title": "Análisis de impacto del feature de ratings con Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:21:49.027441",
+          "completed_at": "2025-11-09T14:22:29.625558",
+          "error": null
+        },
+        "/cursos/claude-code/creacion-de-subagentes-especializados-en/": {
+          "title": "Creación de subagentes especializados en Claude Code para planificación",
+          "status": "completed",
+          "started_at": "2025-11-09T14:22:31.159095",
+          "completed_at": "2025-11-09T14:23:32.525643",
+          "error": null
+        },
+        "/cursos/claude-code/actualizacion-de-cloud-code-a-version-2/": {
+          "title": "Actualización de Claude Code a versión 2.0 y mejoras de Sonnet 4.5",
+          "status": "completed",
+          "started_at": "2025-11-09T14:23:34.061344",
+          "completed_at": "2025-11-09T14:24:25.817609",
+          "error": null
+        },
+        "/cursos/claude-code/83772-creacion-de-subagentes-especializados-en/": {
+          "title": "Creación de subagentes especializados en Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:24:27.359325",
+          "completed_at": "2025-11-09T14:25:17.042876",
+          "error": null
+        },
+        "/cursos/claude-code/uso-de-unit-tests-para-migraciones-segur/": {
+          "title": "Uso de unit tests para migraciones seguras de base de datos",
+          "status": "completed",
+          "started_at": "2025-11-09T14:25:18.635838",
+          "completed_at": "2025-11-09T14:26:20.121056",
+          "error": null
+        },
+        "/cursos/claude-code/implementacion-de-ratings-en-backend-con/": {
+          "title": "Implementación de ratings en backend con Claude Code y Docker",
+          "status": "completed",
+          "started_at": "2025-11-09T14:26:21.665909",
+          "completed_at": "2025-11-09T14:27:21.072387",
+          "error": null
+        },
+        "/cursos/claude-code/implementacion-de-ratings-con-estrellas/": {
+          "title": "Implementación de ratings con estrellas en lista de cursos frontend",
+          "status": "completed",
+          "started_at": "2025-11-09T14:27:22.615270",
+          "completed_at": "2025-11-09T14:28:40.946132",
+          "error": null
+        },
+        "/cursos/claude-code/integracion-de-ratings-con-api-usando-cl/": {
+          "title": "Integración de ratings con API usando Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:28:42.499174",
+          "completed_at": "2025-11-09T14:29:28.357288",
+          "error": null
+        },
+        "/cursos/claude-code/instalacion-de-servidores-mcp-en-cloud-c/": {
+          "title": "Instalación de servidores MCP en Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:29:29.958333",
+          "completed_at": "2025-11-09T14:30:43.750274",
+          "error": null
+        },
+        "/cursos/claude-code/control-de-costos-y-modelos-en-claude-co/": {
+          "title": "Control de costos y modelos en Claude Code",
+          "status": "completed",
+          "started_at": "2025-11-09T14:30:45.286425",
+          "completed_at": "2025-11-09T14:31:27.180301",
+          "error": null
+        },
+        "/cursos/claude-code/instalacion-de-cloud-code-en-github-con/": {
+          "title": "Instalación de Claude Code en GitHub con Actions",
+          "status": "completed",
+          "started_at": "2025-11-09T14:31:28.725715",
+          "completed_at": "2025-11-09T14:32:09.620578",
+          "error": null
+        },
+        "/cursos/claude-code/integracion-de-cloud-code-en-pull-reques/": {
+          "title": "Integración de Claude Code en pull requests de GitHub",
+          "status": "completed",
+          "started_at": "2025-11-09T14:32:11.185604",
+          "completed_at": "2025-11-09T14:32:56.758921",
+          "error": null
+        },
+        "/cursos/claude-code/desarrollo-conversacional-con-cloud-code/": {
+          "title": "Desarrollo conversacional con Claude Code para programar con contexto",
+          "status": "pending",
+          "started_at": "2025-11-09T14:32:58.294722",
+          "completed_at": null,
+          "error": null
+        }
+      }
+    }
+  },
+  "units": {},
+  "errors": [
+    {
+      "type": "unit",
+      "course_id": "/cursos/gitgithub/",
+      "unit_id": "/cursos/gitgithub/introduccion-a-github-codespaces/",
+      "title": "Creación y Gestión de GitHub Codespaces en la Nube",
+      "error": "Error downloading unit: is_timeout error: wreq::Error { kind: Request, url: \"https://api.platzi.com/mdstrm/v1/video/671bd48bb4e677fde92c84df.m3u8\", source: TimedOut }",
+      "timestamp": "2025-10-31T07:44:59.279401"
+    },
+    {
+      "type": "unit",
+      "course_id": "/cursos/gitgithub/",
+      "unit_id": "/cursos/gitgithub/introduccion-a-github-codespaces/",
+      "title": "Creación y Gestión de GitHub Codespaces en la Nube",
+      "error": "Error downloading unit: is_timeout error: wreq::Error { kind: Request, url: \"https://api.platzi.com/mdstrm/v1/video/671bd48bb4e677fde92c84df.m3u8\", source: TimedOut }",
+      "timestamp": "2025-10-31T07:47:09.738846"
+    },
+    {
+      "type": "unit",
+      "course_id": "/cursos/gitgithub/",
+      "unit_id": "/cursos/gitgithub/ciclo-de-vida-de-un-codespace/",
+      "title": "Uso de Codespaces y plantillas en GitHub para proyectos con Django",
+      "error": "Error downloading unit: HTTP 404: Error downloading m3u8 quality manifest",
+      "timestamp": "2025-10-31T07:47:26.772669"
+    },
+    {
+      "type": "unit",
+      "course_id": "/cursos/gitgithub/",
+      "unit_id": "/cursos/gitgithub/comparacion-entre-codespaces-y-githubdev-editor/",
+      "title": "Uso del Editor Web de GitHub para Edición Rápida de Archivos",
+      "error": "Error downloading unit: HTTP 502: Error downloading m3u8 quality manifest",
+      "timestamp": "2025-10-31T07:49:07.918287"
+    }
+  ],
+  "statistics": {
+    "total_courses": 2,
+    "completed_courses": 1,
+    "failed_courses": 0,
+    "total_units": 50,
+    "completed_units": 49,
+    "failed_units": 4
+  },
+  "_metadata": {
+    "version": "2.0",
+    "last_validation": "2025-11-09T14:33:13.284053"
+  },
+  "last_cleaned": "2025-11-09T14:34:54.616788"
+}

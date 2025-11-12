@@ -708,6 +708,14 @@ async def _clean_tracking(checkpoint: str = "download_progress.json", dry_run: b
     
     courses_removed = 0
     units_removed = 0
+    stats_changes = {
+        "completed_courses": 0,
+        "failed_courses": 0,
+        "total_courses": 0,
+        "completed_units": 0,
+        "failed_units": 0,
+        "total_units": 0,
+    }
     
     # Check courses
     print("\n[bold cyan]🔍 Checking courses...[/bold cyan]")
@@ -717,9 +725,6 @@ async def _clean_tracking(checkpoint: str = "download_progress.json", dry_run: b
         course_title = course_data.get("title", "Unknown")
         course_status = course_data.get("status", "")
         
-        if course_status != "completed":
-            continue
-        
         course_dir = find_course_directory(course_title)
         
         if not course_dir or not course_dir.exists():
@@ -727,6 +732,23 @@ async def _clean_tracking(checkpoint: str = "download_progress.json", dry_run: b
             print(f"     [dim]Course ID: {course_id}[/dim]")
             courses_to_remove.append(course_id)
             courses_removed += 1
+            
+            # Track statistics changes
+            stats_changes["total_courses"] += 1
+            if course_status == "completed":
+                stats_changes["completed_courses"] += 1
+            elif course_status == "failed":
+                stats_changes["failed_courses"] += 1
+            
+            # Count units from this course
+            for unit_data in course_data.get("units", {}).values():
+                unit_status = unit_data.get("status", "")
+                stats_changes["total_units"] += 1
+                if unit_status == "completed":
+                    stats_changes["completed_units"] += 1
+                elif unit_status == "failed":
+                    stats_changes["failed_units"] += 1
+            
             continue
         
         print(f"  [green]✅ Course found: {course_title}[/green]")
@@ -739,15 +761,19 @@ async def _clean_tracking(checkpoint: str = "download_progress.json", dry_run: b
             unit_title = unit_data.get("title", "Unknown")
             unit_status = unit_data.get("status", "")
             
-            if unit_status != "completed":
-                continue
-            
             unit_files = find_unit_files(course_dir, unit_index, unit_title)
             
             if not unit_files:
                 print(f"    [red]❌ Unit files not found: [{unit_index}] {unit_title}[/red]")
                 units_to_remove.append(unit_id)
                 units_removed += 1
+                
+                # Track statistics changes
+                stats_changes["total_units"] += 1
+                if unit_status == "completed":
+                    stats_changes["completed_units"] += 1
+                elif unit_status == "failed":
+                    stats_changes["failed_units"] += 1
             else:
                 print(f"    [green]✅ Unit found: [{unit_index}] {unit_title}[/green] [dim]({len(unit_files)} files)[/dim]")
         
@@ -773,8 +799,12 @@ async def _clean_tracking(checkpoint: str = "download_progress.json", dry_run: b
     # Update statistics
     if not dry_run and (courses_removed > 0 or units_removed > 0):
         stats = data.get("statistics", {})
-        stats["completed_courses"] = max(0, stats.get("completed_courses", 0) - courses_removed)
-        stats["completed_units"] = max(0, stats.get("completed_units", 0) - units_removed)
+        stats["total_courses"] = max(0, stats.get("total_courses", 0) - stats_changes["total_courses"])
+        stats["completed_courses"] = max(0, stats.get("completed_courses", 0) - stats_changes["completed_courses"])
+        stats["failed_courses"] = max(0, stats.get("failed_courses", 0) - stats_changes["failed_courses"])
+        stats["total_units"] = max(0, stats.get("total_units", 0) - stats_changes["total_units"])
+        stats["completed_units"] = max(0, stats.get("completed_units", 0) - stats_changes["completed_units"])
+        stats["failed_units"] = max(0, stats.get("failed_units", 0) - stats_changes["failed_units"])
         data["last_cleaned"] = datetime.now().isoformat()
         data["last_updated"] = datetime.now().isoformat()
         

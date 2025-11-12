@@ -6,17 +6,29 @@
 # https://platzi.com/cursos/python/
 # https://platzi.com/cursos/javascript-basico/
 
-https://platzi.com/ruta/diseno-desarrollo-frontend/
-https://platzi.com/ruta/desarollo-frontend-con-javascript/
-https://platzi.com/ruta/desarrollo-c-sharp-net/
-https://platzi.com/ruta/programacion-go-rust/
-https://platzi.com/ruta/programacion-c-c-plusplus/
-https://platzi.com/ruta/programacion-swift-kotlin/
-https://platzi.com/ruta/herramientas-ia/
-https://platzi.com/ruta/fundamentos-programacion-software/
-https://platzi.com/ruta/matematicas-para-programacion/
-https://platzi.com/ruta/programacion-python/
-https://platzi.com/ruta/programacion-javascript/
-https://platzi.com/ruta/programacion-typescript/
-https://platzi.com/ruta/programacion-ooo-java/
-https://platzi.com/ruta/programacion-con-php/
+# https://platzi.com/ruta/diseno-desarrollo-frontend/
+# https://platzi.com/ruta/desarollo-frontend-con-javascript/
+# https://platzi.com/ruta/desarrollo-c-sharp-net/
+# https://platzi.com/ruta/programacion-go-rust/
+# https://platzi.com/ruta/programacion-c-c-plusplus/
+# https://platzi.com/ruta/programacion-swift-kotlin/
+# https://platzi.com/ruta/herramientas-ia/
+# https://platzi.com/ruta/fundamentos-programacion-software/
+# https://platzi.com/ruta/matematicas-para-programacion/
+# https://platzi.com/ruta/programacion-python/
+# https://platzi.com/ruta/programacion-javascript/
+# https://platzi.com/ruta/programacion-typescript/
+# https://platzi.com/ruta/programacion-ooo-java/
+# https://platzi.com/ruta/programacion-con-php/
+https://platzi.com/cursos/herramientas-unity/
+https://platzi.com/cursos/vr-unity/
+https://platzi.com/cursos/unity-3d/
+https://platzi.com/cursos/ui-unity-moviles/
+https://platzi.com/cursos/rpg-unity/
+https://platzi.com/cursos/introduccion-moviles-unity/
+https://platzi.com/cursos/vfx-unity/
+https://platzi.com/cursos/movil-unity/
+https://platzi.com/cursos/introduccion-interfaz-unity/
+https://platzi.com/cursos/unity2dintermedio/
+https://platzi.com/cursos/unity-scripting/
+https://platzi.com/cursos/desarrollo-unity/
